@@ -5,6 +5,7 @@ import { WaterExperience } from './water/WaterExperience';
 const status = document.querySelector<HTMLElement>('#status');
 const root = document.querySelector<HTMLElement>('#water-root');
 const fallback = document.querySelector<HTMLImageElement>('.water-fallback');
+const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 let experience: WaterExperience | undefined;
 let debugPanel: { destroy(): void } | undefined;
 let disposed = false;
@@ -15,7 +16,7 @@ if (fallback) fallback.hidden = false;
 
 try {
   if (!root) throw new Error('Water root is missing.');
-  experience = WaterExperience.mount(root, config);
+  experience = WaterExperience.mount(root, config, motionPreference);
   document.documentElement.classList.add('is-webgl-ready');
   if (fallback) fallback.hidden = true;
   if (status) status.textContent = 'WebGL active';

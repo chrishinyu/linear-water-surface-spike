@@ -49,6 +49,11 @@ body {
 .water-root {
   z-index: -1;
   pointer-events: auto;
+  visibility: hidden;
+}
+
+.is-webgl-ready .water-root {
+  visibility: visible;
 }
 
 .water-root canvas {
@@ -67,6 +72,10 @@ body {
   justify-content: center;
   padding: clamp(2rem, 8vw, 8rem);
   pointer-events: none;
+}
+
+.demo-copy a {
+  pointer-events: auto;
 }
 
 .eyebrow {

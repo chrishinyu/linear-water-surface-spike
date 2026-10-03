@@ -1,5 +1,106 @@
 import { expect, test } from '@playwright/test';
 
+test('reduced motion starts with one still frame and ignores pointer input', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/?debug=1');
+  await expect(page.locator('#water-root canvas')).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.reducedMotion)).toBe(true);
+  const before = await page.evaluate(() => ({
+    frame: window.__waterExperience!.renderer.info.render.frame,
+    speed: window.__waterExperience!.uniforms.uWaveSpeed.value,
+    running: window.__waterDebug!.running,
+  }));
+  expect(before.frame).toBe(1);
+  expect(before.speed).toBe(0);
+  expect(before.running).toBe(false);
+  await page.mouse.click(500, 400);
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => window.__waterDebug?.activeRipples)).toBe(0);
+  expect(await page.evaluate(() => window.__waterExperience!.renderer.info.render.frame)).toBe(before.frame);
+});
+
+test('live motion preference changes restore the latest preset without stale ripples', async ({ page }) => {
+  await page.goto('/?debug=1');
+  await expect(page.locator('#water-root canvas')).toHaveCount(1);
+  await page.mouse.click(500, 400);
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.activeRipples)).toBe(1);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.reducedMotion)).toBe(true);
+  expect(await page.evaluate(() => ({
+    running: window.__waterDebug!.running,
+    ripples: window.__waterDebug!.activeRipples,
+    speed: window.__waterExperience!.uniforms.uWaveSpeed.value,
+    pointer: window.__waterExperience!.uniforms.uPointerStrength.value,
+  }))).toEqual({ running: false, ripples: 0, speed: 0, pointer: 0 });
+  await page.evaluate(() => window.__waterExperience!.updateConfig({ waveSpeed: 0.27, rippleStrength: 0.08 }));
+  expect(await page.evaluate(() => window.__waterExperience!.uniforms.uWaveSpeed.value)).toBe(0);
+  await page.mouse.click(500, 400);
+  expect(await page.evaluate(() => window.__waterDebug!.activeRipples)).toBe(0);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.reducedMotion)).toBe(false);
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.running)).toBe(true);
+  expect(await page.evaluate(() => window.__waterExperience!.uniforms.uWaveSpeed.value)).toBe(0.27);
+  await page.mouse.click(500, 400);
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.activeRipples)).toBe(1);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.reducedMotion)).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.reducedMotion)).toBe(false);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.reducedMotion)).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.reducedMotion)).toBe(false);
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.running)).toBe(true);
+  await page.mouse.click(500, 400);
+  await expect.poll(() => page.evaluate(() => window.__waterDebug?.activeRipples)).toBe(1);
+});
+
+test('failed WebGL creation preserves the static fallback and removes the canvas', async ({ page }) => {
+  await page.addInitScript(() => {
+    HTMLCanvasElement.prototype.getContext = () => null;
+  });
+  await page.goto('/');
+  await expect(page.locator('#water-root canvas')).toHaveCount(0);
+  await expect(page.locator('.water-fallback')).toBeVisible();
+  await expect(page.locator('html')).not.toHaveClass(/is-webgl-ready/);
+  await expect(page.locator('#status')).toHaveText('Static water preview');
+});
+
+test('shader link failure preserves the static fallback and removes the canvas', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = WebGL2RenderingContext.prototype.getProgramParameter;
+    WebGL2RenderingContext.prototype.getProgramParameter = function (program, parameter) {
+      if (parameter === this.LINK_STATUS) return false;
+      return original.call(this, program, parameter);
+    };
+  });
+  await page.goto('/');
+  await expect(page.locator('#water-root canvas')).toHaveCount(0);
+  await expect(page.locator('.water-fallback')).toBeVisible();
+  await expect(page.locator('html')).not.toHaveClass(/is-webgl-ready/);
+  await expect(page.locator('#status')).toHaveText('Static water preview');
+});
+
+test('decorative canvas leaves overlay links and status focus accessible', async ({ page }) => {
+  await page.goto('/?debug=1');
+  const canvas = page.locator('#water-root canvas');
+  await expect(canvas).toHaveCount(1);
+  await expect(canvas).toHaveAttribute('aria-hidden', 'true');
+  expect(await canvas.getAttribute('tabindex')).toBeNull();
+  await page.locator('.demo-copy').evaluate((copy) => {
+    const link = document.createElement('a');
+    link.href = '#overlay-test';
+    link.textContent = 'Overlay test link';
+    copy.append(link);
+  });
+  await page.getByRole('link', { name: 'Overlay test link' }).click();
+  expect(await page.evaluate(() => location.hash)).toBe('#overlay-test');
+  await page.locator('#status').evaluate((status) => { status.textContent = 'Water status updated'; });
+  await expect(page.getByRole('link', { name: 'Overlay test link' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('CANVAS');
+});
+
 test('mounts one canvas and records one intentional ripple', async ({ page }) => {
   await page.goto('/?debug=1');
   await expect(page.locator('#water-root canvas')).toHaveCount(1);

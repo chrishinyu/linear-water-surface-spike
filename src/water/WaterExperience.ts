@@ -23,6 +23,8 @@ export class WaterExperience {
   private readonly mesh: Mesh;
   private readonly root: HTMLElement;
   private readonly config: WaterConfig;
+  private readonly motionPreference: MediaQueryList;
+  private reducedMotion: boolean;
   private tier: QualityTier;
   private running = false;
   private disposed = false;
@@ -44,8 +46,8 @@ export class WaterExperience {
   private intersectionObserver?: IntersectionObserver;
   private readonly debugMetrics?: WaterDebugMetrics;
 
-  static mount(root: HTMLElement, config: WaterConfig): WaterExperience {
-    const experience = new WaterExperience(root, config);
+  static mount(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList): WaterExperience {
+    const experience = new WaterExperience(root, config, motionPreference);
     try {
       experience.resize();
       // A synchronous, validated first frame keeps bootstrap errors inside its
@@ -54,9 +56,11 @@ export class WaterExperience {
       if (experience.shaderFailed) {
         throw new Error('Water shader failed to compile or link.');
       }
+      experience.renderer.domElement.setAttribute('aria-hidden', 'true');
       root.appendChild(experience.renderer.domElement);
       window.addEventListener('resize', experience.onResize);
       document.addEventListener('visibilitychange', experience.onVisibilityChange);
+      motionPreference.addEventListener('change', experience.onMotionPreferenceChange);
       if (typeof IntersectionObserver !== 'undefined') {
         experience.intersectionObserver = new IntersectionObserver(experience.onIntersection);
         experience.intersectionObserver.observe(root);
@@ -71,14 +75,17 @@ export class WaterExperience {
     }
   }
 
-  private constructor(root: HTMLElement, config: WaterConfig) {
+  private constructor(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList) {
     this.root = root;
     this.config = { ...config };
+    this.motionPreference = motionPreference;
+    this.reducedMotion = motionPreference.matches;
     this.tier = config.quality;
     this.adaptiveQuality = new AdaptiveQuality(this.tier,
       window.matchMedia('(pointer: coarse)').matches);
     this.material = createWaterMaterial(config);
     this.uniforms = this.material.uniforms;
+    if (this.reducedMotion) this.uniforms.uWaveSpeed.value = 0;
     this.mesh = new Mesh(this.geometry, this.material);
     try {
       this.renderer = new WebGLRenderer({
@@ -103,14 +110,39 @@ export class WaterExperience {
         quality: this.tier,
         running: false,
         averageFps: 0,
-        reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        reducedMotion: this.reducedMotion,
       };
       window.__waterDebug = this.debugMetrics;
     }
   }
 
-  private readonly onResize = (): void => { this.resize(); };
+  private readonly onResize = (): void => {
+    this.resize();
+    this.renderStillFrame();
+  };
   private readonly onVisibilityChange = (): void => { this.syncRendering(); };
+  private readonly onMotionPreferenceChange = (): void => {
+    if (this.disposed) return;
+    this.reducedMotion = this.motionPreference.matches;
+    if (this.debugMetrics) this.debugMetrics.reducedMotion = this.reducedMotion;
+    this.uniforms.uWaveSpeed.value = this.reducedMotion ? 0 : this.config.waveSpeed;
+    if (this.reducedMotion) {
+      this.syncRendering();
+      this.pointerDownId = null;
+      this.mouseHover = false;
+      this.pointerEnvelope = 0;
+      this.pointerTarget.set(-10, -10);
+      this.pointerSmoothed.set(-10, -10);
+      this.uniforms.uPointerStrength.value = 0;
+      this.uniforms.uPointer.value.copy(this.pointerSmoothed);
+      for (const ripple of this.rippleSlots) ripple.active = false;
+      this.uniforms.uRippleStrengths.value.fill(0);
+      if (this.debugMetrics) this.debugMetrics.activeRipples = 0;
+    }
+    this.syncInteractionListeners();
+    if (this.reducedMotion) this.renderStillFrame();
+    else this.syncRendering();
+  };
   private readonly onIntersection: IntersectionObserverCallback = (entries): void => {
     for (const entry of entries) {
       if (entry.target !== this.root) continue;
@@ -121,7 +153,8 @@ export class WaterExperience {
 
   private syncRendering(): void {
     if (this.disposed) return;
-    const shouldRun = this.wantedRunning && !document.hidden && this.intersecting;
+    const shouldRun = this.wantedRunning && !this.reducedMotion
+      && !document.hidden && this.intersecting;
     if (shouldRun === this.running) return;
     this.running = shouldRun;
     if (this.debugMetrics) this.debugMetrics.running = shouldRun;
@@ -177,6 +210,7 @@ export class WaterExperience {
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
+    if (this.reducedMotion) return;
     if (event.pointerId !== this.pointerDownId) return;
     this.pointerDownId = null;
     const travel = Math.hypot(event.clientX - this.pointerDownX, event.clientY - this.pointerDownY);
@@ -193,14 +227,16 @@ export class WaterExperience {
 
   private syncInteractionListeners(): void {
     const canvas = this.renderer.domElement;
-    if (this.config.interactionEnabled && !this.listenersAttached) {
+    if (this.config.interactionEnabled && !this.reducedMotion && !this.disposed
+      && !this.listenersAttached) {
       canvas.addEventListener('pointermove', this.onPointerMove, { passive: true });
       canvas.addEventListener('pointerleave', this.onPointerLeave, { passive: true });
       canvas.addEventListener('pointerdown', this.onPointerDown, { passive: true });
       canvas.addEventListener('pointerup', this.onPointerUp, { passive: true });
       canvas.addEventListener('pointercancel', this.onPointerCancel, { passive: true });
       this.listenersAttached = true;
-    } else if (!this.config.interactionEnabled && this.listenersAttached) {
+    } else if ((!this.config.interactionEnabled || this.reducedMotion || this.disposed)
+      && this.listenersAttached) {
       canvas.removeEventListener('pointermove', this.onPointerMove);
       canvas.removeEventListener('pointerleave', this.onPointerLeave);
       canvas.removeEventListener('pointerdown', this.onPointerDown);
@@ -249,6 +285,11 @@ export class WaterExperience {
     this.renderer.render(this.scene, this.camera);
   };
 
+  private renderStillFrame(): void {
+    if (this.disposed || !this.reducedMotion || !this.renderer.domElement.isConnected) return;
+    this.renderer.render(this.scene, this.camera);
+  }
+
   start(): void {
     if (this.disposed) return;
     this.wantedRunning = true;
@@ -293,6 +334,7 @@ export class WaterExperience {
       this.rippleSlots[index].active = false;
     }
     this.resize();
+    this.renderStillFrame();
   }
 
   updateConfig(patch: Partial<WaterConfig>): void {
@@ -304,7 +346,7 @@ export class WaterExperience {
     }));
     const uniforms = this.uniforms;
     uniforms.uWaveAmplitude.value = this.config.waveAmplitude;
-    uniforms.uWaveSpeed.value = this.config.waveSpeed;
+    uniforms.uWaveSpeed.value = this.reducedMotion ? 0 : this.config.waveSpeed;
     uniforms.uLineDensity.value = Math.min(this.config.lineDensity,
       getQualitySettings(this.config.quality).lineSamples);
     uniforms.uReflectionCenter.value = this.config.reflectionCenter;
@@ -313,12 +355,14 @@ export class WaterExperience {
     uniforms.uRippleDuration.value = this.config.rippleDuration;
     // Pointer/ripple strengths are input envelopes. Keep the inactive pointer
     // at zero and let interaction handlers consume the updated config.
-    if (uniforms.uPointerStrength.value > 0) {
+    if (!this.reducedMotion && uniforms.uPointerStrength.value > 0) {
       uniforms.uPointerStrength.value = this.config.pointerStrength;
     }
-    if (this.config.quality !== previousQuality) this.setQuality(this.config.quality);
+    const qualityChanged = this.config.quality !== previousQuality;
+    if (qualityChanged) this.setQuality(this.config.quality);
     else if (this.config.maxDpr !== previousDpr) this.resize();
     this.syncInteractionListeners();
+    if (!qualityChanged) this.renderStillFrame();
   }
 
   dispose(): void {
@@ -327,6 +371,7 @@ export class WaterExperience {
     this.disposed = true;
     this.intersectionObserver?.disconnect();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    this.motionPreference.removeEventListener('change', this.onMotionPreferenceChange);
     this.config.interactionEnabled = false;
     this.syncInteractionListeners();
     window.removeEventListener('resize', this.onResize);
