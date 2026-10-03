@@ -39,7 +39,6 @@ export class WaterExperience {
   private listenersAttached = false;
   private readonly frameSampler = new FrameSampler();
   private adaptiveQuality: AdaptiveQuality;
-  private qualityCheckElapsedMs = 0;
   private wantedRunning = false;
   private intersecting = true;
   private intersectionObserver?: IntersectionObserver;
@@ -127,7 +126,6 @@ export class WaterExperience {
     this.running = shouldRun;
     if (this.debugMetrics) this.debugMetrics.running = shouldRun;
     this.lastFrameTime = null;
-    this.qualityCheckElapsedMs = 0;
     this.frameSampler.reset();
     this.adaptiveQuality.resetPressure();
     this.renderer.setAnimationLoop(shouldRun ? this.frame : null);
@@ -224,13 +222,8 @@ export class WaterExperience {
       this.elapsed += delta;
       this.frameSampler.push(deltaMs);
       if (this.debugMetrics) this.debugMetrics.averageFps = Math.round(this.frameSampler.averageFps);
-      this.qualityCheckElapsedMs += deltaMs;
-      if (this.qualityCheckElapsedMs >= 1000) {
-        const nextTier = this.adaptiveQuality.sample(
-          this.frameSampler.averageFps, this.qualityCheckElapsedMs);
-        this.qualityCheckElapsedMs = 0;
-        if (nextTier) this.setQuality(nextTier);
-      }
+      const nextTier = this.adaptiveQuality.sample(1000 / deltaMs, deltaMs);
+      if (nextTier) this.setQuality(nextTier);
       const smoothing = 1 - Math.exp(-Math.min(delta, 0.05) * 8);
       this.pointerSmoothed.lerp(this.pointerTarget, smoothing);
       this.pointerEnvelope += ((this.mouseHover ? this.config.pointerStrength : 0)

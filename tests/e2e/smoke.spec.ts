@@ -87,9 +87,17 @@ test('pauses and resumes without aging ripples while suspended', async ({ page }
   await expect.poll(() => page.evaluate(() => window.__waterDebug?.activeRipples)).toBe(1);
   await page.evaluate(() => window.__waterExperience?.stop());
   await expect.poll(() => page.evaluate(() => window.__waterDebug?.running)).toBe(false);
+  const stopped = await page.evaluate(() => ({
+    renderCount: window.__waterExperience!.renderer.info.render.frame,
+    elapsed: window.__waterExperience!.uniforms.uTime.value,
+  }));
   await page.waitForTimeout(3200);
   await page.evaluate(() => window.__waterExperience?.start());
   await expect.poll(() => page.evaluate(() => window.__waterDebug?.running)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__waterExperience!.renderer.info.render.frame))
+    .toBeGreaterThan(stopped.renderCount);
+  const resumedElapsed = await page.evaluate(() => window.__waterExperience!.uniforms.uTime.value);
+  expect(resumedElapsed - stopped.elapsed).toBeLessThan(0.5);
   await expect.poll(() => page.evaluate(() => window.__waterDebug?.activeRipples)).toBe(1);
 });
 
@@ -158,4 +166,101 @@ test('changes all quality controls without replacing the canvas or material', as
   expect(result.fineWaveWeight).toBeLessThan(result.before.fineWaveWeight);
   expect(result.highlightDetail).toBeLessThan(result.before.highlightDetail);
   expect(result.maxRipples).toBe(2);
+});
+
+test('requires five uninterrupted slow seconds before an automatic tier drop', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 240 });
+  await page.addInitScript(() => {
+    window.requestAnimationFrame = () => 1;
+    window.cancelAnimationFrame = () => {};
+  });
+  await page.goto('/?debug=0');
+  await expect(page.locator('#water-root canvas')).toHaveCount(1);
+  const result = await page.evaluate(() => {
+    const water = window.__waterExperience!;
+    const frame = (water as unknown as { frame(timestamp: number): void }).frame;
+    let timestamp = 0;
+    frame(0);
+    for (let index = 0; index < 75; index += 1) frame(timestamp += 60);
+    for (let index = 0; index < 30; index += 1) frame(timestamp += 500 / 30);
+    const afterRecovery = window.__waterDebug!.quality;
+    for (let index = 0; index < 5; index += 1) frame(timestamp += 100);
+    const afterShortPressure = window.__waterDebug!.quality;
+    for (let index = 0; index < 45; index += 1) frame(timestamp += 100);
+    return { afterRecovery, afterShortPressure,
+      afterContinuousPressure: window.__waterDebug!.quality };
+  });
+  expect(result.afterRecovery).toBe('high');
+  expect(result.afterShortPressure).toBe('high');
+  expect(result.afterContinuousPressure).toBe('medium');
+});
+
+test('highlight detail changes desktop pixels while keeping the light path centered', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 800, height: 450 });
+  await page.addInitScript(() => {
+    window.requestAnimationFrame = () => 1;
+    window.cancelAnimationFrame = () => {};
+  });
+  await page.goto('/?debug=0');
+  await expect(page.locator('#water-root canvas')).toHaveCount(1);
+  const signal = await page.evaluate(() => {
+    const water = window.__waterExperience!;
+    const renderer = water.renderer;
+    const gl = renderer.getContext();
+    const scene = (water as unknown as { scene: import('three').Scene }).scene;
+    const camera = (water as unknown as { camera: import('three').Camera }).camera;
+    const x = Math.floor(gl.drawingBufferWidth * 0.25);
+    const y = Math.floor(gl.drawingBufferHeight * 0.2);
+    const width = Math.floor(gl.drawingBufferWidth * 0.5);
+    const height = Math.floor(gl.drawingBufferHeight * 0.6);
+    const read = (detail: number) => {
+      water.uniforms.uHighlightDetail.value = detail;
+      renderer.render(scene, camera);
+      const pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return pixels;
+    };
+    const high = read(7);
+    const low = read(3);
+    let changedPixels = 0;
+    let totalDifference = 0;
+    let highCenter = 0;
+    let lowCenter = 0;
+    let highLight = 0;
+    let lowLight = 0;
+    for (let index = 0; index < width * height; index += 1) {
+      const offset = index * 4;
+      const highValue = high[offset] + high[offset + 1] + high[offset + 2];
+      const lowValue = low[offset] + low[offset + 1] + low[offset + 2];
+      const difference = Math.abs(highValue - lowValue);
+      if (difference > 0) changedPixels += 1;
+      totalDifference += difference;
+      const column = index % width;
+      highCenter += column * highValue;
+      lowCenter += column * lowValue;
+      highLight += highValue;
+      lowLight += lowValue;
+    }
+    return {
+      changedPixels,
+      totalDifference,
+      centerShift: Math.abs(highCenter / highLight - lowCenter / lowLight),
+      width,
+    };
+  });
+  expect(signal.changedPixels).toBeGreaterThan(10_000);
+  expect(signal.totalDifference).toBeGreaterThan(400_000);
+  expect(signal.centerShift).toBeLessThan(signal.width * 0.05);
+  if (process.env.VISUAL_INSPECTION === '1') {
+    for (const detail of [7, 3]) {
+      await page.evaluate((value) => {
+        const water = window.__waterExperience!;
+        water.uniforms.uHighlightDetail.value = value;
+        const scene = (water as unknown as { scene: import('three').Scene }).scene;
+        const camera = (water as unknown as { camera: import('three').Camera }).camera;
+        water.renderer.render(scene, camera);
+      }, detail);
+      await page.screenshot({ path: testInfo.outputPath(`desktop-highlight-${detail}.png`) });
+    }
+  }
 });

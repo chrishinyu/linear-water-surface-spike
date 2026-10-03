@@ -39,11 +39,20 @@ describe('AdaptiveQuality', () => {
     expect(controller.sample(40, 1000)).toBe('medium');
   });
 
+  it('treats a single recovered frame as a break in continuous pressure', () => {
+    const controller = new AdaptiveQuality('high');
+    expect(controller.sample(20, 4500)).toBeNull();
+    expect(controller.sample(60, 16)).toBeNull();
+    expect(controller.sample(20, 500)).toBeNull();
+    expect(controller.sample(20, 4500)).toBe('medium');
+  });
+
   it('uses a 30 FPS threshold on mobile', () => {
     const controller = new AdaptiveQuality('high', true);
     expect(controller.sample(35, 10000)).toBeNull();
     expect(controller.sample(29, 4999)).toBeNull();
-    expect(controller.sample(29, 1)).toBe('medium');
+    expect(controller.sample(29, 1)).toBeNull();
+    expect(controller.sample(29, 999)).toBe('medium');
   });
 
   it('never upgrades or drops below low', () => {

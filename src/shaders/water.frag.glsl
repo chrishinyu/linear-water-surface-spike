@@ -82,21 +82,21 @@ void main() {
   float facing = smoothstep(0.04, 0.5, normal.y + swell * 0.15 + (breakupB - 0.5) * 0.45);
   float fragments = smoothstep(0.31, 0.73, breakupA)
     * smoothstep(0.23, 0.70, breakupB) * mix(0.18, 1.0, crestCoverage);
-  // Portrait framing otherwise stacks many parallel bright rows. Break their
-  // coverage along both the crest and its phase, while retaining the same
-  // line field and fixed light path used by the desktop surface.
-  float portraitBreakup = breakupA;
+  // Vary glint fragmentation within the same fixed light path on every aspect
+  // ratio; portrait framing uses stronger breakup to avoid stacked bright rows.
+  float highlightBreakup = breakupA;
   if (uHighlightDetail >= 5.0) {
-    portraitBreakup = noise(vec2(p.x * 2.7 + breakupA * 1.3,
+    highlightBreakup = noise(vec2(p.x * 2.7 + breakupA * 1.3,
       phase * 0.73 + breakupB * 0.5));
   }
   if (uHighlightDetail >= 7.0) {
-    portraitBreakup = mix(portraitBreakup,
+    highlightBreakup = mix(highlightBreakup,
       noise(vec2(p.x * 4.1 + crestBreakup, phase * 1.17)), 0.25);
   }
   float crestGlint = mix(lines, 0.13 + lines * 0.47, portrait);
+  float detailBreakup = smoothstep(0.38, 0.75, highlightBreakup);
   float glint = reflection * facing * fragments * crestGlint
-    * mix(1.0, smoothstep(0.38, 0.75, portraitBreakup) * 1.4, portrait);
+    * mix(mix(0.2, 1.6, detailBreakup), detailBreakup * 1.4, portrait);
   // Specular energy is confined to the same crest lines as the dark surface;
   // there is no screen-space bloom or broad white reflection wash.
   color += uLightColor * glint * 1.9 * uReflectionIntensity;
