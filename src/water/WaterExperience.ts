@@ -1,5 +1,5 @@
 import { Mesh, OrthographicCamera, PlaneGeometry, Scene, WebGLRenderer } from 'three';
-import type { QualityTier, WaterConfig } from '../config';
+import { resolveConfig, type QualityTier, type WaterConfig } from '../config';
 import { createRippleSlots, writeRippleUniforms } from '../math/ripple';
 import { createWaterMaterial } from './createWaterMaterial';
 import type { WaterMaterial, WaterUniforms } from './createWaterMaterial';
@@ -117,11 +117,37 @@ export class WaterExperience {
   setQuality(tier: QualityTier): void {
     if (this.disposed) return;
     this.tier = tier;
+    this.config.quality = tier;
     const quality = getQualitySettings(tier);
     this.uniforms.uFineWaveWeight.value = quality.fineWaveWeight;
     this.uniforms.uLineDensity.value = Math.min(this.config.lineDensity, quality.lineSamples);
     this.uniforms.uRippleCount.value = Math.min(this.uniforms.uRippleCount.value, quality.maxRipples);
     this.resize();
+  }
+
+  updateConfig(patch: Partial<WaterConfig>): void {
+    if (this.disposed) return;
+    const previousQuality = this.tier;
+    const previousDpr = this.config.maxDpr;
+    Object.assign(this.config, resolveConfig(patch.mode ?? this.config.mode, {
+      ...this.config, ...patch,
+    }));
+    const uniforms = this.uniforms;
+    uniforms.uWaveAmplitude.value = this.config.waveAmplitude;
+    uniforms.uWaveSpeed.value = this.config.waveSpeed;
+    uniforms.uLineDensity.value = Math.min(this.config.lineDensity,
+      getQualitySettings(this.config.quality).lineSamples);
+    uniforms.uReflectionCenter.value = this.config.reflectionCenter;
+    uniforms.uReflectionWidth.value = this.config.reflectionWidth;
+    uniforms.uReflectionIntensity.value = this.config.reflectionIntensity;
+    uniforms.uRippleDuration.value = this.config.rippleDuration;
+    // Pointer/ripple strengths are input envelopes. Keep the inactive pointer
+    // at zero and let interaction handlers consume the updated config.
+    if (uniforms.uPointerStrength.value > 0) {
+      uniforms.uPointerStrength.value = this.config.pointerStrength;
+    }
+    if (this.config.quality !== previousQuality) this.setQuality(this.config.quality);
+    else if (this.config.maxDpr !== previousDpr) this.resize();
   }
 
   dispose(): void {

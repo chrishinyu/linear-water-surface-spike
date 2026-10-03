@@ -19,16 +19,16 @@ export interface WaterConfig {
 
 export const HERO_CONFIG: Readonly<WaterConfig> = Object.freeze({
   mode: 'hero', quality: 'high', maxDpr: 1.5,
-  waveAmplitude: 0.18, waveSpeed: 0.16, lineDensity: 235,
-  reflectionIntensity: 1.15, reflectionCenter: 0.52, reflectionWidth: 0.18,
+  waveAmplitude: 0.17, waveSpeed: 0.14, lineDensity: 228,
+  reflectionIntensity: 1.05, reflectionCenter: 0.54, reflectionWidth: 0.19,
   pointerStrength: 0.035, rippleStrength: 0.11, rippleDuration: 3,
   interactionEnabled: true,
 });
 
 export const BACKGROUND_CONFIG: Readonly<WaterConfig> = Object.freeze({
   mode: 'background', quality: 'medium', maxDpr: 1.25,
-  waveAmplitude: 0.11, waveSpeed: 0.11, lineDensity: 190,
-  reflectionIntensity: 0.72, reflectionCenter: 0.52, reflectionWidth: 0.2,
+  waveAmplitude: 0.10, waveSpeed: 0.09, lineDensity: 180,
+  reflectionIntensity: 0.58, reflectionCenter: 0.54, reflectionWidth: 0.20,
   pointerStrength: 0.018, rippleStrength: 0.06, rippleDuration: 3,
   interactionEnabled: true,
 });

@@ -50,6 +50,10 @@ void main() {
   vec2 grain = vec2(p.x * 1.8, depth * 38.0 - t * 0.13);
   float breakupA = noise(grain + vec2(swell * 0.4, 0.0));
   float breakupB = noise(grain * vec2(2.13, 1.71) + vec2(19.7, 5.3));
+  // A continuous, anisotropic crest field interrupts rows without introducing
+  // independent particles or a repeating cell/grid of specular dots.
+  float crestBreakup = noise(grain * vec2(3.7, 1.27)
+    + vec2(swell * 1.2, breakupA * 1.5));
   float phase = depth * uLineDensity + swell * 3.8
     + (breakupA - 0.5) * 1.35 + (breakupB - 0.5) * 0.45 * uFineWaveWeight;
   float ridgeDistance = abs(fract(phase) - 0.5);
@@ -63,18 +67,23 @@ void main() {
   float tone = clamp(0.12 + face * 0.34 + vHeight * 0.8
     + broadNoise * 0.14 + screen.y * 0.12, 0.0, 1.0);
   vec3 color = mix(uBaseColor, uMidColor, tone * tone);
-  color *= 0.79 + lines * (0.12 + breakupB * 0.20) + breakupA * 0.14;
+  float crestCoverage = smoothstep(0.24, 0.76, crestBreakup);
+  color *= 0.86 + lines * crestCoverage * (0.10 + breakupB * 0.20)
+    + breakupA * 0.14;
 
   // Screen-anchored illumination: pointer and wave motion cannot move its center.
-  float reflectionX = (screen.x - uReflectionCenter) / max(uReflectionWidth, 0.001);
+  // A slight widening toward the viewer keeps one stable vertical light path.
+  float pathWidth = uReflectionWidth * mix(1.12, 0.82, screen.y);
+  float reflectionX = (screen.x - uReflectionCenter) / max(pathWidth, 0.001);
   float reflection = exp(-reflectionX * reflectionX * 2.5);
   float facing = smoothstep(0.04, 0.5, normal.y + swell * 0.15 + (breakupB - 0.5) * 0.45);
-  float fragments = smoothstep(0.36, 0.77, breakupA)
-    * smoothstep(0.25, 0.72, breakupB);
-  float glint = reflection * facing * fragments * (0.15 + lines * 1.85);
-  float flare = smoothstep(0.66, 0.95, reflection * facing * breakupA * breakupB);
-  color += uLightColor * (glint * 0.8 + flare * 0.25) * uReflectionIntensity;
-  color += uMidColor * reflection * face * 0.12 * uReflectionIntensity;
+  float fragments = smoothstep(0.31, 0.73, breakupA)
+    * smoothstep(0.23, 0.70, breakupB) * mix(0.18, 1.0, crestCoverage);
+  float glint = reflection * facing * fragments * lines;
+  // Specular energy is confined to the same crest lines as the dark surface;
+  // there is no screen-space bloom or broad white reflection wash.
+  color += uLightColor * glint * 1.9 * uReflectionIntensity;
+  color += uMidColor * reflection * face * 0.065 * uReflectionIntensity;
   float pointerLift = exp(-dot(vUv - uPointer, vUv - uPointer) * 95.0);
   color += uMidColor * pointerLift * uPointerStrength * 0.35;
   // A slight near-field darkening reinforces the angle without a horizon.
