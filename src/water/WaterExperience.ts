@@ -33,6 +33,7 @@ export class WaterExperience {
   private pointerDownX = 0;
   private pointerDownY = 0;
   private pointerDownTime = 0;
+  private pointerMaxTravel = 0;
   private listenersAttached = false;
   private fpsFrames = 0;
   private fpsElapsed = 0;
@@ -117,6 +118,10 @@ export class WaterExperience {
   }
 
   private readonly onPointerMove = (event: PointerEvent): void => {
+    if (event.pointerId === this.pointerDownId) {
+      this.pointerMaxTravel = Math.max(this.pointerMaxTravel,
+        Math.hypot(event.clientX - this.pointerDownX, event.clientY - this.pointerDownY));
+    }
     if (event.pointerType !== 'mouse') return;
     const hadHover = this.mouseHover;
     this.mouseHover = this.pointerUv(event.clientX, event.clientY, this.pointerTarget);
@@ -131,13 +136,15 @@ export class WaterExperience {
     this.pointerDownX = event.clientX;
     this.pointerDownY = event.clientY;
     this.pointerDownTime = event.timeStamp;
+    this.pointerMaxTravel = 0;
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
     if (event.pointerId !== this.pointerDownId) return;
     this.pointerDownId = null;
     const travel = Math.hypot(event.clientX - this.pointerDownX, event.clientY - this.pointerDownY);
-    if (travel >= 10 || event.timeStamp - this.pointerDownTime >= 500) return;
+    if (Math.max(travel, this.pointerMaxTravel) >= 10
+      || event.timeStamp - this.pointerDownTime >= 500) return;
     if (!this.pointerUv(event.clientX, event.clientY, this.tapPosition)) return;
     emitRipple(this.rippleSlots, this.tapPosition, this.elapsed,
       this.config.rippleStrength, getQualitySettings(this.tier).maxRipples);
@@ -172,7 +179,9 @@ export class WaterExperience {
     if (!this.running || this.disposed) return;
     if (this.lastFrameTime !== null) {
       const delta = Math.max(0, (timestamp - this.lastFrameTime) / 1000);
-      this.elapsed += Math.min(delta, 0.05);
+      // Keep shader/ripple time in real seconds. Only the pointer easing step
+      // is bounded, so a slow frame cannot stretch a three-second ripple.
+      this.elapsed += delta;
       this.fpsElapsed += delta;
       this.fpsFrames += 1;
       if (this.fpsElapsed >= 1) {
@@ -180,7 +189,7 @@ export class WaterExperience {
         this.fpsElapsed = 0;
         this.fpsFrames = 0;
       }
-      const smoothing = 1 - Math.exp(-delta * 8);
+      const smoothing = 1 - Math.exp(-Math.min(delta, 0.05) * 8);
       this.pointerSmoothed.lerp(this.pointerTarget, smoothing);
       this.pointerEnvelope += ((this.mouseHover ? this.config.pointerStrength : 0)
         - this.pointerEnvelope) * smoothing;
