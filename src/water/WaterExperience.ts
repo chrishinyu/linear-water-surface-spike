@@ -1,6 +1,6 @@
-import { Mesh, OrthographicCamera, PlaneGeometry, Scene, WebGLRenderer } from 'three';
+import { Mesh, OrthographicCamera, PlaneGeometry, Raycaster, Scene, Vector2, WebGLRenderer } from 'three';
 import { resolveConfig, type QualityTier, type WaterConfig } from '../config';
-import { createRippleSlots, writeRippleUniforms } from '../math/ripple';
+import { createRippleSlots, emitRipple, writeRippleUniforms } from '../math/ripple';
 import { createWaterMaterial } from './createWaterMaterial';
 import type { WaterMaterial, WaterUniforms } from './createWaterMaterial';
 import { getQualitySettings } from './quality';
@@ -12,6 +12,11 @@ export class WaterExperience {
   readonly rippleSlots = createRippleSlots(4);
   private readonly scene = new Scene();
   private readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 30);
+  private readonly pointerRaycaster = new Raycaster();
+  private readonly pointerNdc = new Vector2();
+  private readonly pointerTarget = new Vector2(-10, -10);
+  private readonly pointerSmoothed = new Vector2(-10, -10);
+  private readonly tapPosition = new Vector2();
   private readonly geometry = new PlaneGeometry(1, 1, 180, 220);
   private readonly mesh: Mesh;
   private readonly root: HTMLElement;
@@ -22,6 +27,16 @@ export class WaterExperience {
   private shaderFailed = false;
   private lastFrameTime: number | null = null;
   private elapsed = 0;
+  private pointerEnvelope = 0;
+  private mouseHover = false;
+  private pointerDownId: number | null = null;
+  private pointerDownX = 0;
+  private pointerDownY = 0;
+  private pointerDownTime = 0;
+  private listenersAttached = false;
+  private fpsFrames = 0;
+  private fpsElapsed = 0;
+  private readonly debugMetrics?: WaterDebugMetrics;
 
   static mount(root: HTMLElement, config: WaterConfig): WaterExperience {
     const experience = new WaterExperience(root, config);
@@ -35,6 +50,7 @@ export class WaterExperience {
       }
       root.appendChild(experience.renderer.domElement);
       window.addEventListener('resize', experience.onResize);
+      experience.syncInteractionListeners();
       experience.start();
       return experience;
     } catch (error) {
@@ -67,32 +83,139 @@ export class WaterExperience {
     this.camera.position.set(0, -8, 6.7);
     this.camera.lookAt(0, 0, 0);
     this.scene.add(this.mesh);
+    if (import.meta.env.DEV) {
+      this.debugMetrics = {
+        activeRipples: 0,
+        quality: this.tier,
+        running: false,
+        averageFps: 0,
+        reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      };
+      window.__waterDebug = this.debugMetrics;
+    }
   }
 
   private readonly onResize = (): void => { this.resize(); };
 
+  private pointerUv(clientX: number, clientY: number, output: Vector2): boolean {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    this.pointerNdc.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      1 - ((clientY - rect.top) / rect.height) * 2,
+    );
+    this.pointerRaycaster.setFromCamera(this.pointerNdc, this.camera);
+    const { origin, direction } = this.pointerRaycaster.ray;
+    if (Math.abs(direction.z) < 0.0001) return false;
+    const distance = -origin.z / direction.z;
+    if (distance < 0) return false;
+    output.set(
+      (origin.x + distance * direction.x) / this.mesh.scale.x + 0.5,
+      (origin.y + distance * direction.y) / this.mesh.scale.y + 0.5,
+    );
+    return output.x >= 0 && output.x <= 1 && output.y >= 0 && output.y <= 1;
+  }
+
+  private readonly onPointerMove = (event: PointerEvent): void => {
+    if (event.pointerType !== 'mouse') return;
+    const hadHover = this.mouseHover;
+    this.mouseHover = this.pointerUv(event.clientX, event.clientY, this.pointerTarget);
+    if (this.mouseHover && !hadHover) this.pointerSmoothed.copy(this.pointerTarget);
+  };
+
+  private readonly onPointerLeave = (): void => { this.mouseHover = false; };
+
+  private readonly onPointerDown = (event: PointerEvent): void => {
+    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    this.pointerDownId = event.pointerId;
+    this.pointerDownX = event.clientX;
+    this.pointerDownY = event.clientY;
+    this.pointerDownTime = event.timeStamp;
+  };
+
+  private readonly onPointerUp = (event: PointerEvent): void => {
+    if (event.pointerId !== this.pointerDownId) return;
+    this.pointerDownId = null;
+    const travel = Math.hypot(event.clientX - this.pointerDownX, event.clientY - this.pointerDownY);
+    if (travel >= 10 || event.timeStamp - this.pointerDownTime >= 500) return;
+    if (!this.pointerUv(event.clientX, event.clientY, this.tapPosition)) return;
+    emitRipple(this.rippleSlots, this.tapPosition, this.elapsed,
+      this.config.rippleStrength, getQualitySettings(this.tier).maxRipples);
+  };
+
+  private readonly onPointerCancel = (event: PointerEvent): void => {
+    if (event.pointerId === this.pointerDownId) this.pointerDownId = null;
+  };
+
+  private syncInteractionListeners(): void {
+    const canvas = this.renderer.domElement;
+    if (this.config.interactionEnabled && !this.listenersAttached) {
+      canvas.addEventListener('pointermove', this.onPointerMove, { passive: true });
+      canvas.addEventListener('pointerleave', this.onPointerLeave, { passive: true });
+      canvas.addEventListener('pointerdown', this.onPointerDown, { passive: true });
+      canvas.addEventListener('pointerup', this.onPointerUp, { passive: true });
+      canvas.addEventListener('pointercancel', this.onPointerCancel, { passive: true });
+      this.listenersAttached = true;
+    } else if (!this.config.interactionEnabled && this.listenersAttached) {
+      canvas.removeEventListener('pointermove', this.onPointerMove);
+      canvas.removeEventListener('pointerleave', this.onPointerLeave);
+      canvas.removeEventListener('pointerdown', this.onPointerDown);
+      canvas.removeEventListener('pointerup', this.onPointerUp);
+      canvas.removeEventListener('pointercancel', this.onPointerCancel);
+      this.listenersAttached = false;
+      this.pointerDownId = null;
+      this.mouseHover = false;
+    }
+  }
+
   private readonly frame = (timestamp: number): void => {
     if (!this.running || this.disposed) return;
     if (this.lastFrameTime !== null) {
-      this.elapsed += Math.min((timestamp - this.lastFrameTime) / 1000, 0.05);
+      const delta = Math.max(0, (timestamp - this.lastFrameTime) / 1000);
+      this.elapsed += Math.min(delta, 0.05);
+      this.fpsElapsed += delta;
+      this.fpsFrames += 1;
+      if (this.fpsElapsed >= 1) {
+        if (this.debugMetrics) this.debugMetrics.averageFps = Math.round(this.fpsFrames / this.fpsElapsed);
+        this.fpsElapsed = 0;
+        this.fpsFrames = 0;
+      }
+      const smoothing = 1 - Math.exp(-delta * 8);
+      this.pointerSmoothed.lerp(this.pointerTarget, smoothing);
+      this.pointerEnvelope += ((this.mouseHover ? this.config.pointerStrength : 0)
+        - this.pointerEnvelope) * smoothing;
     }
     this.lastFrameTime = timestamp;
     this.uniforms.uTime.value = this.elapsed;
+    this.uniforms.uPointer.value.copy(this.pointerSmoothed);
+    this.uniforms.uPointerStrength.value = this.pointerEnvelope;
     writeRippleUniforms(this.rippleSlots, this.elapsed, this.config.rippleDuration,
       this.uniforms.uRipplePositions.value, this.uniforms.uRippleStarts.value,
       this.uniforms.uRippleStrengths.value);
+    const maxRipples = getQualitySettings(this.tier).maxRipples;
+    this.uniforms.uRippleCount.value = maxRipples;
+    if (this.debugMetrics) {
+      let active = 0;
+      for (let index = 0; index < maxRipples; index += 1) {
+        if (this.uniforms.uRippleStrengths.value[index] > 0) active += 1;
+      }
+      this.debugMetrics.activeRipples = active;
+      this.debugMetrics.quality = this.tier;
+    }
     this.renderer.render(this.scene, this.camera);
   };
 
   start(): void {
     if (this.running || this.disposed) return;
     this.running = true;
+    if (this.debugMetrics) this.debugMetrics.running = true;
     this.lastFrameTime = null;
     this.renderer.setAnimationLoop(this.frame);
   }
 
   stop(): void {
     this.running = false;
+    if (this.debugMetrics) this.debugMetrics.running = false;
     this.lastFrameTime = null;
     this.renderer.setAnimationLoop(null);
   }
@@ -148,13 +271,17 @@ export class WaterExperience {
     }
     if (this.config.quality !== previousQuality) this.setQuality(this.config.quality);
     else if (this.config.maxDpr !== previousDpr) this.resize();
+    this.syncInteractionListeners();
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.stop();
     this.disposed = true;
+    this.config.interactionEnabled = false;
+    this.syncInteractionListeners();
     window.removeEventListener('resize', this.onResize);
+    if (this.debugMetrics && window.__waterDebug === this.debugMetrics) delete window.__waterDebug;
     this.scene.remove(this.mesh);
     this.geometry.dispose();
     this.material.dispose();

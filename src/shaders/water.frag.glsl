@@ -93,8 +93,9 @@ void main() {
   // there is no screen-space bloom or broad white reflection wash.
   color += uLightColor * glint * 1.9 * uReflectionIntensity;
   color += uMidColor * reflection * face * 0.065 * uReflectionIntensity;
-  float pointerLift = exp(-dot(vUv - uPointer, vUv - uPointer) * 95.0);
-  color += uMidColor * pointerLift * uPointerStrength * 0.35;
+  vec2 pointerDelta = (vUv - uPointer) * vec2(1.5, 1.0);
+  float pointerLift = exp(-dot(pointerDelta, pointerDelta) * 95.0);
+  color += uMidColor * pointerLift * uPointerStrength * 0.2;
   // A slight near-field darkening reinforces the angle without a horizon.
   color *= 0.84 + 0.16 * smoothstep(-2.0, 1.0, vWorldPosition.y);
   gl_FragColor = vec4(color, 1.0);

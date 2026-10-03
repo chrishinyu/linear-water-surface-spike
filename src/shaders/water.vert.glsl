@@ -26,8 +26,9 @@ float waves(vec2 p) {
 
 float heightAt(vec2 p, vec2 texcoord) {
   float height = waves(p) * uWaveAmplitude;
+  float interaction = 0.0;
   vec2 pointerDelta = (texcoord - uPointer) * vec2(1.5, 1.0);
-  height += uPointerStrength * exp(-dot(pointerDelta, pointerDelta) * 70.0);
+  interaction += uPointerStrength * exp(-dot(pointerDelta, pointerDelta) * 70.0);
   for (int i = 0; i < 4; i++) {
     if (i < uRippleCount) {
       float age = uTime - uRippleStarts[i];
@@ -35,11 +36,12 @@ float heightAt(vec2 p, vec2 texcoord) {
       float offset = (radius - age * 0.18) * 15.0;
       float envelope = exp(-offset * offset);
       float alive = step(0.0, age) * (1.0 - step(uRippleDuration, age));
-      height += sin(radius * 85.0 - age * 15.0) * envelope
-        * exp(-radius * 3.0) * uRippleStrengths[i] * alive;
+      interaction += sin(radius * 85.0 - age * 15.0) * envelope
+        * exp(-radius * 3.0) * uRippleStrengths[i] * alive * 0.65;
     }
   }
-  return height;
+  // Several quick taps must never turn the quiet swell into a rubber sheet.
+  return height + clamp(interaction, -0.14, 0.14);
 }
 
 void main() {

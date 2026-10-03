@@ -35,4 +35,24 @@ describe('ripple state', () => {
     expect(strengths[0]).toBeCloseTo(0.1);
     expect([...strengths.slice(1)]).toEqual([0, 0, 0, 0]);
   });
+
+  it('deactivates expired ripple slots so they are not counted as active', () => {
+    const slots = createRippleSlots(4);
+    emitRipple(slots, { x: 0.5, y: 0.5 }, 1, 0.11);
+    writeRippleUniforms(slots, 4, 3, new Float32Array(8), new Float32Array(4), new Float32Array(4));
+    expect(slots.filter((slot) => slot.active)).toHaveLength(0);
+  });
+
+  it('caps allocated ripple slots at four', () => {
+    expect(createRippleSlots(10)).toHaveLength(4);
+  });
+
+  it('reuses only slots inside the quality tier cap', () => {
+    const slots = createRippleSlots(4);
+    emitRipple(slots, { x: 0.1, y: 0.1 }, 1, 0.1, 2);
+    emitRipple(slots, { x: 0.2, y: 0.2 }, 2, 0.1, 2);
+    emitRipple(slots, { x: 0.3, y: 0.3 }, 3, 0.1, 2);
+    expect(slots[0].x).toBe(0.3);
+    expect(slots.slice(2).every((slot) => !slot.active)).toBe(true);
+  });
 });

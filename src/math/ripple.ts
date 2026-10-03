@@ -29,11 +29,14 @@ export function emitRipple(
   point: RipplePoint,
   time: number,
   strength: number,
+  maxSlots = slots.length,
 ): void {
-  if (slots.length === 0) return;
+  const count = Math.min(MAX_RIPPLE_UNIFORMS, slots.length, Math.max(0, Math.floor(maxSlots)));
+  if (count === 0) return;
 
   let target = slots[0];
-  for (const slot of slots) {
+  for (let index = 0; index < count; index += 1) {
+    const slot = slots[index];
     if (!slot.active) {
       target = slot;
       break;
@@ -68,7 +71,10 @@ export function writeRippleUniforms(
     const age = Math.max(0, now - slot.startedAt);
     const decay = duration > 0 ? Math.max(0, 1 - age / duration) : 0;
     const strength = slot.strength * decay;
-    if (strength <= 0) continue;
+    if (strength <= 0) {
+      slot.active = false;
+      continue;
+    }
 
     const positionIndex = index * 2;
     if (positionIndex + 1 < positions.length) {
