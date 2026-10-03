@@ -32,7 +32,8 @@ float heightAt(vec2 p, vec2 texcoord) {
     if (i < uRippleCount) {
       float age = uTime - uRippleStarts[i];
       float radius = length((texcoord - uRipplePositions[i]) * vec2(1.5, 1.0));
-      float envelope = exp(-pow((radius - age * 0.18) * 15.0, 2.0));
+      float offset = (radius - age * 0.18) * 15.0;
+      float envelope = exp(-offset * offset);
       float alive = step(0.0, age) * (1.0 - step(uRippleDuration, age));
       height += sin(radius * 85.0 - age * 15.0) * envelope
         * exp(-radius * 3.0) * uRippleStrengths[i] * alive;

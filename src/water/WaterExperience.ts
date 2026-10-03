@@ -19,6 +19,7 @@ export class WaterExperience {
   private tier: QualityTier;
   private running = false;
   private disposed = false;
+  private shaderFailed = false;
   private lastFrameTime: number | null = null;
   private elapsed = 0;
 
@@ -29,6 +30,9 @@ export class WaterExperience {
       // A synchronous, validated first frame keeps bootstrap errors inside its
       // failure boundary. The fallback is hidden by bootstrap only after this.
       experience.renderer.render(experience.scene, experience.camera);
+      if (experience.shaderFailed) {
+        throw new Error('Water shader failed to compile or link.');
+      }
       root.appendChild(experience.renderer.domElement);
       window.addEventListener('resize', experience.onResize);
       experience.start();
@@ -56,7 +60,8 @@ export class WaterExperience {
       throw error;
     }
     this.renderer.debug.onShaderError = () => {
-      throw new Error('Water shader failed to compile or link.');
+      // Three must finish its shader cleanup before mount handles failure.
+      this.shaderFailed = true;
     };
     this.renderer.setClearColor('#061015', 1);
     this.camera.position.set(0, -8, 6.7);
