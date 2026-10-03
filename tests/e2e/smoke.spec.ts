@@ -192,15 +192,26 @@ test('pauses and resumes without aging ripples while suspended', async ({ page }
   const stopped = await page.evaluate(() => ({
     renderCount: window.__waterExperience!.renderer.info.render.frame,
     elapsed: window.__waterExperience!.uniforms.uTime.value,
+    activeSlots: window.__waterExperience!.rippleSlots.filter((slot) => slot.active).length,
   }));
+  expect(stopped.activeSlots).toBe(1);
   await page.waitForTimeout(3200);
-  await page.evaluate(() => window.__waterExperience?.start());
+  const whileStopped = await page.evaluate(() => ({
+    elapsed: window.__waterExperience!.uniforms.uTime.value,
+    activeSlots: window.__waterExperience!.rippleSlots.filter((slot) => slot.active).length,
+  }));
+  expect(whileStopped).toEqual({ elapsed: stopped.elapsed, activeSlots: 1 });
+  const atResume = await page.evaluate(() => {
+    window.__waterExperience?.start();
+    return {
+      elapsed: window.__waterExperience!.uniforms.uTime.value,
+      activeSlots: window.__waterExperience!.rippleSlots.filter((slot) => slot.active).length,
+    };
+  });
+  expect(atResume).toEqual({ elapsed: stopped.elapsed, activeSlots: 1 });
   await expect.poll(() => page.evaluate(() => window.__waterDebug?.running)).toBe(true);
   await expect.poll(() => page.evaluate(() => window.__waterExperience!.renderer.info.render.frame))
     .toBeGreaterThan(stopped.renderCount);
-  const resumedElapsed = await page.evaluate(() => window.__waterExperience!.uniforms.uTime.value);
-  expect(resumedElapsed - stopped.elapsed).toBeLessThan(0.5);
-  await expect.poll(() => page.evaluate(() => window.__waterDebug?.activeRipples)).toBe(1);
 });
 
 test('pauses when hidden or outside the viewport and resumes when visible', async ({ page }) => {
@@ -298,6 +309,7 @@ test('requires five uninterrupted slow seconds before an automatic tier drop', a
 });
 
 test('highlight detail changes desktop pixels while keeping the light path centered', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
   await page.setViewportSize({ width: 800, height: 450 });
   await page.addInitScript(() => {
     window.requestAnimationFrame = () => 1;

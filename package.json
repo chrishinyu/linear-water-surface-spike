@@ -3,6 +3,10 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=10.8.3"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && node scripts/check-bundle.mjs",
@@ -12,6 +16,7 @@
     "test:e2e": "playwright test",
     "profile:desktop": "node scripts/profile.mjs desktop",
     "profile:mobile": "node scripts/profile.mjs mobile-emulation",
+    "validate:profiles": "node scripts/validate-profiles.mjs",
     "check": "npm run test && npm run build"
   },
   "devDependencies": {

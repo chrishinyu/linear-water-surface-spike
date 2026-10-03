@@ -33,12 +33,16 @@ try {
   });
   page.on('pageerror', (error) => warnings.push(`pageerror: ${error.message}`));
   await page.addInitScript(() => {
-    const samples = { frameMs: [], longTasks: [], tierChanges: [], lastTier: '' };
+    const samples = {
+      frameMs: [], longTasks: [], tierChanges: [], lastTier: '',
+      frameOriginMs: null, frameEndMs: null, lastFrame: null, recording: false,
+    };
     Object.assign(window, { __profileSamples: samples });
-    let lastFrame = 0;
     const sampleFrame = (timestamp) => {
-      if (lastFrame) samples.frameMs.push(timestamp - lastFrame);
-      lastFrame = timestamp;
+      if (samples.recording) {
+        if (samples.lastFrame !== null) samples.frameMs.push(timestamp - samples.lastFrame);
+        samples.lastFrame = timestamp;
+      }
       requestAnimationFrame(sampleFrame);
     };
     requestAnimationFrame(sampleFrame);
@@ -76,6 +80,10 @@ try {
   const screenshotWarnings = warnings.splice(0);
   await page.evaluate(() => {
     window.__profileSamples.frameMs.length = 0;
+    window.__profileSamples.lastFrame = null;
+    window.__profileSamples.frameOriginMs = performance.now();
+    window.__profileSamples.frameEndMs = null;
+    window.__profileSamples.recording = true;
     window.__profileSamples.longTasks.length = 0;
     window.__profileSamples.tierChanges.length = 0;
     window.__profileSamples.tierChanges.push({ ms: performance.now(), tier: window.__waterDebug?.quality });
@@ -90,9 +98,10 @@ try {
       bytes: metrics.metrics.find((item) => item.name === 'JSHeapUsedSize')?.value ?? null });
     console.log(`${mode}: ${Math.round((Date.now() - profileStart) / 1000)}/${seconds}s`);
   }
-  const end = await cdp.send('Performance.getMetrics');
   const samples = await page.evaluate(() => {
     const samples = window.__profileSamples;
+    samples.recording = false;
+    samples.frameEndMs = performance.now();
     return {
       ...samples,
       finalTier: window.__waterDebug?.quality,
@@ -102,11 +111,13 @@ try {
       textVisible: !!document.querySelector('h1')?.getClientRects().length,
     };
   });
+  const end = await cdp.send('Performance.getMetrics');
   const metric = (set, name) => set.metrics.find((item) => item.name === name)?.value ?? null;
   const sorted = samples.frameMs.filter((value) => value > 0).sort((a, b) => b - a);
+  if (sorted.length === 0) throw new Error('No timed animation-frame intervals were recorded.');
   const slowestCount = Math.max(1, Math.ceil(sorted.length * 0.01));
   const slowestMeanMs = sorted.slice(0, slowestCount).reduce((sum, value) => sum + value, 0) / slowestCount;
-  const elapsedSeconds = (Date.now() - profileStart) / 1000;
+  const elapsedSeconds = (samples.frameEndMs - samples.frameOriginMs) / 1000;
   const frameSummary = {
     count: sorted.length,
     averageFps: sorted.length / (sorted.reduce((sum, value) => sum + value, 0) / 1000),
@@ -139,6 +150,14 @@ try {
     viewport,
     browserEnvironment,
     frames: frameSummary,
+    frameSampling: {
+      startedAtPerformanceMs: samples.frameOriginMs,
+      endedAtPerformanceMs: samples.frameEndMs,
+      intervalSpanSeconds: samples.frameMs.reduce((sum, value) => sum + value, 0) / 1000,
+      firstBoundaryIntervalDiscarded: true,
+      screenshotExcluded: true,
+    },
+    frameIntervalsMs: samples.frameMs,
     jsHeapUsedBytes: { start: metric(start, 'JSHeapUsedSize'), end: metric(end, 'JSHeapUsedSize') },
     jsHeapSamples: heapSamples,
     longTasks: { count: samples.longTasks.length, totalMs: samples.longTasks.reduce((sum, entry) => sum + entry.duration, 0), maxMs: Math.max(0, ...samples.longTasks.map((entry) => entry.duration)) },

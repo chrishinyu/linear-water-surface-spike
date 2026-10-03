@@ -4,7 +4,7 @@ An isolated Vite, Three.js, and GLSL prototype for a dark water hero made from p
 
 ## Run and verify
 
-Use Node.js 20.19+ or 22.12+ and npm. From this directory:
+Use Node.js 24 and npm 10.8.3 or newer. The locked Vitest 5.0.3 supports Node 24, and `vite-plugin-glsl` requires npm 10.8.3 or newer. The package engines and repository `.npmrc` enforce these versions during a clean install. From this directory:
 
 ```bash
 npm install
@@ -34,9 +34,10 @@ For sustained, repeatable browser-environment runs, build first, then run these 
 npm run build
 npm run profile:desktop
 npm run profile:mobile
+npm run validate:profiles
 ```
 
-Each profile lasts 300 seconds by default and writes a JSON measurement plus a still to `artifacts/`. The desktop run uses 1440×900 at device scale factor 1. The mobile-emulation run uses 390×844, mobile viewport/touch emulation, and device scale factor 3 (the application caps rendering DPR). Both use headless Playwright Chromium against the Vite development server so `window.__waterDebug` can expose tier changes. The JSON records browser/GPU identification, average and 1% low FPS from animation-frame intervals, CDP JS heap samples, Long Task API entries, quality changes, browser warnings, and a post-profile scroll/link/text check. Screenshot capture is excluded from the timed interval. A browser profile cannot provide physical-device temperature.
+Each profile lasts at least 300 seconds by default and writes a JSON measurement plus a still to `artifacts/`. The desktop run uses 1440×900 at device scale factor 1. The mobile-emulation run uses 390×844, mobile viewport/touch emulation, and device scale factor 3 (the application caps rendering DPR). Both use headless Playwright Chromium against the Vite development server so `window.__waterDebug` can expose tier changes. After the screenshot and setup, the sampler clears prior intervals and its previous-frame timestamp; it discards the first boundary interval. The JSON persists every measured frame interval in `frameIntervalsMs`, plus browser/GPU identification, average and 1% low FPS calculated from those intervals, CDP JS heap samples, Long Task API entries, quality changes, browser warnings, and a post-profile scroll/link/text check. Screenshot capture is excluded from the timed interval. `npm run validate:profiles` recomputes the frame metrics from the raw intervals and checks duration and screenshot dimensions. A browser profile cannot provide physical-device temperature.
 
 For a Chrome Performance trace, open `npm run dev` in Chrome, set the responsive viewport to 1440×900 or 390×844, select the actual device scale factor, enable screenshots and memory in DevTools Performance, then record for five minutes. Save the trace with the browser version, viewport, DPR, GPU renderer, power state, and foreground/background state. Inspect Frames, Main thread long tasks, JS heap, GPU warnings, and quality transitions. Repeat on a physical mobile device through remote debugging; record model, OS, browser, battery and power mode, thermal state or highest temperature the device exposes, and interaction responsiveness. Mobile emulation alone does not satisfy the GO gate.
 
