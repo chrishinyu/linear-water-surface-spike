@@ -1,5 +1,7 @@
 import { Mesh, OrthographicCamera, PlaneGeometry, Raycaster, Scene, Vector2, WebGLRenderer } from 'three';
 import { resolveConfig, type QualityTier, type WaterConfig } from '../config';
+import { AdaptiveQuality } from '../performance/AdaptiveQuality';
+import { FrameSampler } from '../performance/FrameSampler';
 import { createRippleSlots, emitRipple, writeRippleUniforms } from '../math/ripple';
 import { createWaterMaterial } from './createWaterMaterial';
 import type { WaterMaterial, WaterUniforms } from './createWaterMaterial';
@@ -35,8 +37,12 @@ export class WaterExperience {
   private pointerDownTime = 0;
   private pointerMaxTravel = 0;
   private listenersAttached = false;
-  private fpsFrames = 0;
-  private fpsElapsed = 0;
+  private readonly frameSampler = new FrameSampler();
+  private adaptiveQuality: AdaptiveQuality;
+  private qualityCheckElapsedMs = 0;
+  private wantedRunning = false;
+  private intersecting = true;
+  private intersectionObserver?: IntersectionObserver;
   private readonly debugMetrics?: WaterDebugMetrics;
 
   static mount(root: HTMLElement, config: WaterConfig): WaterExperience {
@@ -51,7 +57,13 @@ export class WaterExperience {
       }
       root.appendChild(experience.renderer.domElement);
       window.addEventListener('resize', experience.onResize);
+      document.addEventListener('visibilitychange', experience.onVisibilityChange);
+      if (typeof IntersectionObserver !== 'undefined') {
+        experience.intersectionObserver = new IntersectionObserver(experience.onIntersection);
+        experience.intersectionObserver.observe(root);
+      }
       experience.syncInteractionListeners();
+      if (import.meta.env.DEV) window.__waterExperience = experience;
       experience.start();
       return experience;
     } catch (error) {
@@ -64,6 +76,8 @@ export class WaterExperience {
     this.root = root;
     this.config = { ...config };
     this.tier = config.quality;
+    this.adaptiveQuality = new AdaptiveQuality(this.tier,
+      window.matchMedia('(pointer: coarse)').matches);
     this.material = createWaterMaterial(config);
     this.uniforms = this.material.uniforms;
     this.mesh = new Mesh(this.geometry, this.material);
@@ -97,6 +111,27 @@ export class WaterExperience {
   }
 
   private readonly onResize = (): void => { this.resize(); };
+  private readonly onVisibilityChange = (): void => { this.syncRendering(); };
+  private readonly onIntersection: IntersectionObserverCallback = (entries): void => {
+    for (const entry of entries) {
+      if (entry.target !== this.root) continue;
+      this.intersecting = entry.isIntersecting && entry.intersectionRatio > 0;
+      this.syncRendering();
+    }
+  };
+
+  private syncRendering(): void {
+    if (this.disposed) return;
+    const shouldRun = this.wantedRunning && !document.hidden && this.intersecting;
+    if (shouldRun === this.running) return;
+    this.running = shouldRun;
+    if (this.debugMetrics) this.debugMetrics.running = shouldRun;
+    this.lastFrameTime = null;
+    this.qualityCheckElapsedMs = 0;
+    this.frameSampler.reset();
+    this.adaptiveQuality.resetPressure();
+    this.renderer.setAnimationLoop(shouldRun ? this.frame : null);
+  }
 
   private pointerUv(clientX: number, clientY: number, output: Vector2): boolean {
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -182,16 +217,19 @@ export class WaterExperience {
   private readonly frame = (timestamp: number): void => {
     if (!this.running || this.disposed) return;
     if (this.lastFrameTime !== null) {
-      const delta = Math.max(0, (timestamp - this.lastFrameTime) / 1000);
+      const deltaMs = Math.max(0, timestamp - this.lastFrameTime);
+      const delta = deltaMs / 1000;
       // Keep shader/ripple time in real seconds. Only the pointer easing step
       // is bounded, so a slow frame cannot stretch a three-second ripple.
       this.elapsed += delta;
-      this.fpsElapsed += delta;
-      this.fpsFrames += 1;
-      if (this.fpsElapsed >= 1) {
-        if (this.debugMetrics) this.debugMetrics.averageFps = Math.round(this.fpsFrames / this.fpsElapsed);
-        this.fpsElapsed = 0;
-        this.fpsFrames = 0;
+      this.frameSampler.push(deltaMs);
+      if (this.debugMetrics) this.debugMetrics.averageFps = Math.round(this.frameSampler.averageFps);
+      this.qualityCheckElapsedMs += deltaMs;
+      if (this.qualityCheckElapsedMs >= 1000) {
+        const nextTier = this.adaptiveQuality.sample(
+          this.frameSampler.averageFps, this.qualityCheckElapsedMs);
+        this.qualityCheckElapsedMs = 0;
+        if (nextTier) this.setQuality(nextTier);
       }
       const smoothing = 1 - Math.exp(-Math.min(delta, 0.05) * 8);
       this.pointerSmoothed.lerp(this.pointerTarget, smoothing);
@@ -219,18 +257,14 @@ export class WaterExperience {
   };
 
   start(): void {
-    if (this.running || this.disposed) return;
-    this.running = true;
-    if (this.debugMetrics) this.debugMetrics.running = true;
-    this.lastFrameTime = null;
-    this.renderer.setAnimationLoop(this.frame);
+    if (this.disposed) return;
+    this.wantedRunning = true;
+    this.syncRendering();
   }
 
   stop(): void {
-    this.running = false;
-    if (this.debugMetrics) this.debugMetrics.running = false;
-    this.lastFrameTime = null;
-    this.renderer.setAnimationLoop(null);
+    this.wantedRunning = false;
+    this.syncRendering();
   }
 
   resize(): void {
@@ -252,12 +286,19 @@ export class WaterExperience {
 
   setQuality(tier: QualityTier): void {
     if (this.disposed) return;
+    if (tier === this.tier) return;
     this.tier = tier;
     this.config.quality = tier;
+    this.adaptiveQuality = new AdaptiveQuality(tier,
+      window.matchMedia('(pointer: coarse)').matches);
     const quality = getQualitySettings(tier);
     this.uniforms.uFineWaveWeight.value = quality.fineWaveWeight;
     this.uniforms.uLineDensity.value = Math.min(this.config.lineDensity, quality.lineSamples);
-    this.uniforms.uRippleCount.value = Math.min(this.uniforms.uRippleCount.value, quality.maxRipples);
+    this.uniforms.uHighlightDetail.value = quality.highlightSamples;
+    this.uniforms.uRippleCount.value = quality.maxRipples;
+    for (let index = quality.maxRipples; index < this.rippleSlots.length; index += 1) {
+      this.rippleSlots[index].active = false;
+    }
     this.resize();
   }
 
@@ -291,10 +332,13 @@ export class WaterExperience {
     if (this.disposed) return;
     this.stop();
     this.disposed = true;
+    this.intersectionObserver?.disconnect();
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.config.interactionEnabled = false;
     this.syncInteractionListeners();
     window.removeEventListener('resize', this.onResize);
     if (this.debugMetrics && window.__waterDebug === this.debugMetrics) delete window.__waterDebug;
+    if (window.__waterExperience === this) delete window.__waterExperience;
     this.scene.remove(this.mesh);
     this.geometry.dispose();
     this.material.dispose();

@@ -18,6 +18,7 @@ export interface WaterUniforms {
   uWaveSpeed: Uniform<number>;
   uFineWaveWeight: Uniform<number>;
   uLineDensity: Uniform<number>;
+  uHighlightDetail: Uniform<number>;
   uReflectionIntensity: Uniform<number>;
   uReflectionCenter: Uniform<number>;
   uReflectionWidth: Uniform<number>;
@@ -44,6 +45,7 @@ export function createWaterMaterial(config: WaterConfig): WaterMaterial {
     uWaveSpeed: { value: config.waveSpeed },
     uFineWaveWeight: { value: quality.fineWaveWeight },
     uLineDensity: { value: Math.min(config.lineDensity, quality.lineSamples) },
+    uHighlightDetail: { value: quality.highlightSamples },
     uReflectionIntensity: { value: config.reflectionIntensity },
     uReflectionCenter: { value: config.reflectionCenter },
     uReflectionWidth: { value: config.reflectionWidth },

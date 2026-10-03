@@ -6,6 +6,7 @@ uniform float uWaveAmplitude;
 uniform float uWaveSpeed;
 uniform float uFineWaveWeight;
 uniform float uLineDensity;
+uniform float uHighlightDetail;
 uniform float uReflectionIntensity;
 uniform float uReflectionCenter;
 uniform float uReflectionWidth;
@@ -84,8 +85,15 @@ void main() {
   // Portrait framing otherwise stacks many parallel bright rows. Break their
   // coverage along both the crest and its phase, while retaining the same
   // line field and fixed light path used by the desktop surface.
-  float portraitBreakup = noise(vec2(p.x * 2.7 + breakupA * 1.3,
-    phase * 0.73 + breakupB * 0.5));
+  float portraitBreakup = breakupA;
+  if (uHighlightDetail >= 5.0) {
+    portraitBreakup = noise(vec2(p.x * 2.7 + breakupA * 1.3,
+      phase * 0.73 + breakupB * 0.5));
+  }
+  if (uHighlightDetail >= 7.0) {
+    portraitBreakup = mix(portraitBreakup,
+      noise(vec2(p.x * 4.1 + crestBreakup, phase * 1.17)), 0.25);
+  }
   float crestGlint = mix(lines, 0.13 + lines * 0.47, portrait);
   float glint = reflection * facing * fragments * crestGlint
     * mix(1.0, smoothstep(0.38, 0.75, portraitBreakup) * 1.4, portrait);

@@ -15,4 +15,5 @@ interface WaterDebugMetrics {
 
 interface Window {
   __waterDebug?: WaterDebugMetrics;
+  __waterExperience?: import('./water/WaterExperience').WaterExperience;
 }
