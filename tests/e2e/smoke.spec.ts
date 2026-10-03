@@ -83,6 +83,7 @@ test('shader link failure preserves the static fallback and removes the canvas',
 
 test('decorative canvas leaves overlay links and status focus accessible', async ({ page }) => {
   await page.goto('/?debug=1');
+  await expect(page.getByRole('status')).toHaveText('WebGL active');
   const canvas = page.locator('#water-root canvas');
   await expect(canvas).toHaveCount(1);
   await expect(canvas).toHaveAttribute('aria-hidden', 'true');
@@ -95,7 +96,7 @@ test('decorative canvas leaves overlay links and status focus accessible', async
   });
   await page.getByRole('link', { name: 'Overlay test link' }).click();
   expect(await page.evaluate(() => location.hash)).toBe('#overlay-test');
-  await page.locator('#status').evaluate((status) => { status.textContent = 'Water status updated'; });
+  await expect(page.getByRole('status')).toHaveText('WebGL active');
   await expect(page.getByRole('link', { name: 'Overlay test link' })).toBeFocused();
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('CANVAS');

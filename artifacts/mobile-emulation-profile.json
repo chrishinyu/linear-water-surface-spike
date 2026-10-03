@@ -1,0 +1,117 @@
+{
+  "mode": "mobile-emulation",
+  "profileDurationSeconds": 300.234,
+  "measuredAt": "2026-10-03T05:54:02.960Z",
+  "browser": "Playwright Chromium 153.0.8010.12 headless, Vite development server",
+  "host": {
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "browserEnvironment": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+    "hardwareConcurrency": 8,
+    "devicePixelRatio": 3,
+    "gpuVendor": "Google Inc. (Google)",
+    "gpuRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)",
+    "drawingBuffer": {
+      "width": 585,
+      "height": 1266
+    }
+  },
+  "frames": {
+    "count": 6615,
+    "averageFps": 22.021526166666888,
+    "onePercentLowFps": 10.226041300996334,
+    "slowestMeanMs": 97.78955223880907,
+    "maxFrameMs": 333.2000000000003
+  },
+  "jsHeapUsedBytes": {
+    "start": 17415660,
+    "end": 8532500
+  },
+  "jsHeapSamples": [
+    {
+      "seconds": 0,
+      "bytes": 17415660
+    },
+    {
+      "seconds": 30.047,
+      "bytes": 17777172
+    },
+    {
+      "seconds": 60.089,
+      "bytes": 8020612
+    },
+    {
+      "seconds": 90.111,
+      "bytes": 8483040
+    },
+    {
+      "seconds": 120.15,
+      "bytes": 8093328
+    },
+    {
+      "seconds": 150.182,
+      "bytes": 8584408
+    },
+    {
+      "seconds": 180.224,
+      "bytes": 8295144
+    },
+    {
+      "seconds": 210.259,
+      "bytes": 8049504
+    },
+    {
+      "seconds": 240.301,
+      "bytes": 8504068
+    },
+    {
+      "seconds": 270.308,
+      "bytes": 8148008
+    },
+    {
+      "seconds": 300.021,
+      "bytes": 8531944
+    }
+  ],
+  "longTasks": {
+    "count": 804,
+    "totalMs": 46640,
+    "maxMs": 225
+  },
+  "quality": {
+    "transitions": [
+      {
+        "ms": 2866.4000000953674,
+        "tier": "high"
+      },
+      {
+        "ms": 13646.400000095367,
+        "tier": "medium"
+      }
+    ],
+    "finalTier": "medium",
+    "finalAverageFps": 23
+  },
+  "warnings": [],
+  "screenshotWarnings": [
+    "warning: [.WebGL-0x1240043c600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x1240043c600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x1240043c600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x1240043c600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+  ],
+  "interaction": {
+    "scrollY": 844,
+    "linkActivated": true,
+    "textVisible": true
+  },
+  "activeRipples": 0,
+  "running": true,
+  "deviceTemperature": null,
+  "deviceTemperatureReason": "Neither Playwright nor Chromium exposes a physical device temperature sensor."
+}

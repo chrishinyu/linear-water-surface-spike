@@ -63,6 +63,18 @@ describe('AdaptiveQuality', () => {
     expect(controller.sample(60, 30000)).toBeNull();
   });
 
+  it('waits another five slow seconds before a second downgrade', () => {
+    const controller = new AdaptiveQuality('high');
+    for (let second = 0; second < 4; second += 1) {
+      expect(controller.sample(20, 1000)).toBeNull();
+    }
+    expect(controller.sample(20, 1000)).toBe('medium');
+    for (let second = 0; second < 4; second += 1) {
+      expect(controller.sample(20, 1000)).toBeNull();
+    }
+    expect(controller.sample(20, 1000)).toBe('low');
+  });
+
   it('resets sustained pressure on pause', () => {
     const controller = new AdaptiveQuality('high');
     expect(controller.sample(40, 4000)).toBeNull();
