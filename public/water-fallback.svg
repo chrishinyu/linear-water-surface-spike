@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="water" x2="0" y2="1"><stop stop-color="#354953"/><stop offset=".52" stop-color="#172a34"/><stop offset="1" stop-color="#050c10"/></linearGradient>
+    <radialGradient id="light"><stop stop-color="#c0d0d5" stop-opacity=".3"/><stop offset="1" stop-color="#89a5b4" stop-opacity="0"/></radialGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="12 3"/></filter>
+    <filter id="broad"><feGaussianBlur stdDeviation="32 10"/></filter>
+  </defs>
+  <path fill="url(#water)" d="M0 0h1600v1000H0z"/>
+  <ellipse cx="850" cy="500" rx="220" ry="720" fill="url(#light)"/>
+  <g fill="none" stroke="#76929f" stroke-opacity=".27" filter="url(#broad)">
+    <path stroke-width="20" d="M-50 95Q350 130 830 90T1650 85M-50 210Q410 145 900 195T1650 185M-50 400Q450 290 930 370T1650 330M-50 675Q330 505 870 605T1650 540M-50 895Q600 725 1050 780T1650 720"/>
+  </g>
+  <g fill="none" stroke="#8ba5b0" stroke-opacity=".28" filter="url(#soft)">
+    <path stroke-width="3" d="M0 47Q320 60 600 40T1600 42M0 80Q450 56 700 72T1600 61M0 155Q350 134 820 151T1600 132M0 240Q330 220 680 242T1600 204M0 327Q340 285 790 309T1600 271M0 463Q360 390 850 424T1600 385M0 614Q400 534 890 580T1600 505M0 835Q390 720 960 762T1600 686M0 990Q360 893 940 940T1600 848"/>
+  </g>
+  <g fill="none" stroke="#ccdde3" stroke-opacity=".26" stroke-width="5" filter="url(#soft)">
+    <path d="M790 119l112-4m-162 76 190-8m-155 93 167-13m-221 106 194-16m-131 121 139-12m-208 128 155-18m-97 156 104-14m-150 121 129-19"/>
+  </g>
+</svg>
