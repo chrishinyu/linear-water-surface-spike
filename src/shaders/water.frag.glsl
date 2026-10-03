@@ -61,6 +61,7 @@ void main() {
   float lines = 1.0 - smoothstep(0.075, 0.075 + aa, ridgeDistance);
   // Fade unresolved lines to their average coverage instead of aliasing.
   lines = mix(lines, 0.15, smoothstep(0.6, 1.6, aa));
+  float portrait = 1.0 - smoothstep(0.65, 1.2, uResolution.x / uResolution.y);
   vec3 normal = normalize(vec3(-vHeightSlope.x, -vHeightSlope.y, 1.0));
   float face = smoothstep(-0.35, 0.65, normal.y + (breakupA - 0.5) * 0.48);
   float broadNoise = noise(vec2(p.x * 0.85, p.y * 2.0 + swell));
@@ -69,6 +70,7 @@ void main() {
   vec3 color = mix(uBaseColor, uMidColor, tone * tone);
   float crestCoverage = smoothstep(0.24, 0.76, crestBreakup);
   color *= 0.86 + lines * crestCoverage * (0.10 + breakupB * 0.20)
+    * mix(1.0, 0.55, portrait)
     + breakupA * 0.14;
 
   // Screen-anchored illumination: pointer and wave motion cannot move its center.
@@ -79,7 +81,14 @@ void main() {
   float facing = smoothstep(0.04, 0.5, normal.y + swell * 0.15 + (breakupB - 0.5) * 0.45);
   float fragments = smoothstep(0.31, 0.73, breakupA)
     * smoothstep(0.23, 0.70, breakupB) * mix(0.18, 1.0, crestCoverage);
-  float glint = reflection * facing * fragments * lines;
+  // Portrait framing otherwise stacks many parallel bright rows. Break their
+  // coverage along both the crest and its phase, while retaining the same
+  // line field and fixed light path used by the desktop surface.
+  float portraitBreakup = noise(vec2(p.x * 2.7 + breakupA * 1.3,
+    phase * 0.73 + breakupB * 0.5));
+  float crestGlint = mix(lines, 0.13 + lines * 0.47, portrait);
+  float glint = reflection * facing * fragments * crestGlint
+    * mix(1.0, smoothstep(0.38, 0.75, portraitBreakup) * 1.4, portrait);
   // Specular energy is confined to the same crest lines as the dark surface;
   // there is no screen-space bloom or broad white reflection wash.
   color += uLightColor * glint * 1.9 * uReflectionIntensity;
