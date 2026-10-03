@@ -128,7 +128,11 @@ export class WaterExperience {
     if (this.mouseHover && !hadHover) this.pointerSmoothed.copy(this.pointerTarget);
   };
 
-  private readonly onPointerLeave = (): void => { this.mouseHover = false; };
+  private readonly onPointerLeave = (): void => {
+    this.mouseHover = false;
+    // Leaving the canvas permanently cancels this press, even if it returns.
+    this.pointerDownId = null;
+  };
 
   private readonly onPointerDown = (event: PointerEvent): void => {
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;

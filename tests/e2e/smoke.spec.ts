@@ -35,6 +35,24 @@ test('does not ripple when a drag returns to its starting point', async ({ page 
   expect(await page.evaluate(() => window.__waterDebug?.activeRipples ?? 0)).toBe(0);
 });
 
+test('does not ripple after the pointer leaves and returns to the canvas', async ({ page }) => {
+  await page.goto('/?debug=0');
+  await expect(page.locator('#water-root canvas')).toHaveCount(1);
+  await page.evaluate(() => {
+    const canvas = document.querySelector('#water-root canvas')!;
+    const send = (type: string, x: number) => canvas.dispatchEvent(new PointerEvent(type, {
+      bubbles: type !== 'pointerleave', isPrimary: true, pointerId: 9, pointerType: 'mouse',
+      button: 0, clientX: x, clientY: 400,
+    }));
+    send('pointerdown', 25);
+    send('pointerleave', -20);
+    send('pointermove', 25);
+    send('pointerup', 25);
+  });
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.__waterDebug?.activeRipples ?? 0)).toBe(0);
+});
+
 test('expires a three-second ripple under a throttled frame loop', async ({ page }) => {
   await page.addInitScript(() => {
     window.requestAnimationFrame = (callback) =>
