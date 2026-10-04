@@ -97,7 +97,7 @@ void main() {
   float detailBreakup = smoothstep(0.38, 0.75, highlightBreakup);
   float glint = reflection * facing * fragments * crestGlint
     * mix(mix(0.2, 1.6, detailBreakup), detailBreakup * 1.4, portrait);
-  // Specular energy is confined to the same crest lines as the dark surface;
+  // Crest lines shape the stronger glints, with a softer reflection fill below;
   // there is no screen-space bloom or broad white reflection wash.
   color += uLightColor * glint * 1.9 * uReflectionIntensity;
   color += uMidColor * reflection * face * 0.065 * uReflectionIntensity;

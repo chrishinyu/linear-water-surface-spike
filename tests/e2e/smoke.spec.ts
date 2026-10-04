@@ -81,7 +81,7 @@ test('shader link failure preserves the static fallback and removes the canvas',
   await expect(page.locator('#status')).toHaveText('Static water preview');
 });
 
-test('decorative canvas leaves overlay links and status focus accessible', async ({ page }) => {
+test('context loss reveals fallback and keeps focus on an overlay link through the status change', async ({ page }) => {
   await page.goto('/?debug=1');
   await expect(page.getByRole('status')).toHaveText('WebGL active');
   const canvas = page.locator('#water-root canvas');
@@ -97,6 +97,34 @@ test('decorative canvas leaves overlay links and status focus accessible', async
   await page.getByRole('link', { name: 'Overlay test link' }).click();
   expect(await page.evaluate(() => location.hash)).toBe('#overlay-test');
   await expect(page.getByRole('status')).toHaveText('WebGL active');
+  await expect(page.getByRole('link', { name: 'Overlay test link' })).toBeFocused();
+  await page.evaluate(() => {
+    const water = window.__waterExperience!;
+    const metrics = window.__waterDebug!;
+    const extension = water.renderer.getContext().getExtension('WEBGL_lose_context');
+    if (!extension) throw new Error('WEBGL_lose_context unavailable');
+    (window as typeof window & { __contextLossProbe?: { metrics: WaterDebugMetrics; water: typeof water } })
+      .__contextLossProbe = { metrics, water };
+    extension.loseContext();
+  });
+  await expect(page.getByRole('status')).toHaveText('Static water preview');
+  await expect(page.locator('.water-fallback')).toBeVisible();
+  await expect(page.locator('html')).not.toHaveClass(/is-webgl-ready/);
+  await expect(page.locator('#water-root canvas')).toHaveCount(0);
+  expect(await page.evaluate(() => {
+    const probe = (window as typeof window & { __contextLossProbe?: {
+      metrics: WaterDebugMetrics; water: import('../../src/water/WaterExperience').WaterExperience;
+    } }).__contextLossProbe!;
+    return { running: probe.metrics.running, disposed: window.__waterExperience === undefined,
+      debugRemoved: window.__waterDebug === undefined };
+  })).toEqual({ running: false, disposed: true, debugRemoved: true });
+  const stoppedFrame = await page.evaluate(() => (window as typeof window & {
+    __contextLossProbe?: { water: import('../../src/water/WaterExperience').WaterExperience };
+  }).__contextLossProbe!.water.renderer.info.render.frame);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (window as typeof window & {
+    __contextLossProbe?: { water: import('../../src/water/WaterExperience').WaterExperience };
+  }).__contextLossProbe!.water.renderer.info.render.frame)).toBe(stoppedFrame);
   await expect(page.getByRole('link', { name: 'Overlay test link' })).toBeFocused();
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('CANVAS');
@@ -281,7 +309,7 @@ test('changes all quality controls without replacing the canvas or material', as
   expect(result.maxRipples).toBe(2);
 });
 
-test('requires five uninterrupted slow seconds before an automatic tier drop', async ({ page }) => {
+test('simulated frame timestamps require five uninterrupted slow seconds before a tier drop', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 240 });
   await page.addInitScript(() => {
     window.requestAnimationFrame = () => 1;
@@ -289,6 +317,8 @@ test('requires five uninterrupted slow seconds before an automatic tier drop', a
   });
   await page.goto('/?debug=0');
   await expect(page.locator('#water-root canvas')).toHaveCount(1);
+  // Calls the frame callback directly: verifies pressure accounting, not the
+  // browser's actual frame scheduling or sustained hardware performance.
   const result = await page.evaluate(() => {
     const water = window.__waterExperience!;
     const frame = (water as unknown as { frame(timestamp: number): void }).frame;
@@ -308,7 +338,7 @@ test('requires five uninterrupted slow seconds before an automatic tier drop', a
   expect(result.afterContinuousPressure).toBe('medium');
 });
 
-test('highlight detail changes desktop pixels while keeping the light path centered', async ({ page }, testInfo) => {
+test('highlight-detail readback changes pixels with a stable luminance centroid', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 800, height: 450 });
   await page.addInitScript(() => {
@@ -317,6 +347,8 @@ test('highlight detail changes desktop pixels while keeping the light path cente
   });
   await page.goto('/?debug=0');
   await expect(page.locator('#water-root canvas')).toHaveCount(1);
+  // A numerical shader signal only; it cannot prove isolated reflection shape
+  // or that a viewer perceives the intended fragmented light path.
   const signal = await page.evaluate(() => {
     const water = window.__waterExperience!;
     const renderer = water.renderer;

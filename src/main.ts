@@ -13,15 +13,23 @@ const config = resolveConfig('hero');
 
 document.documentElement.classList.remove('is-webgl-ready');
 if (fallback) fallback.hidden = false;
+const showStaticPreview = (): void => {
+  document.documentElement.classList.remove('is-webgl-ready');
+  if (fallback) fallback.hidden = false;
+  if (status) status.textContent = 'Static water preview';
+  debugPanel?.destroy();
+  debugPanel = undefined;
+  experience = undefined;
+};
 
 try {
   if (!root) throw new Error('Water root is missing.');
-  experience = WaterExperience.mount(root, config, motionPreference);
+  experience = WaterExperience.mount(root, config, motionPreference, showStaticPreview);
   document.documentElement.classList.add('is-webgl-ready');
   if (fallback) fallback.hidden = true;
   if (status) status.textContent = 'WebGL active';
 } catch (error) {
-  if (status) status.textContent = 'Static water preview';
+  showStaticPreview();
   console.warn('Water renderer unavailable; using static preview.', error);
 }
 

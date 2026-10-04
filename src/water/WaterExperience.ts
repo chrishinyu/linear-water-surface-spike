@@ -24,6 +24,7 @@ export class WaterExperience {
   private readonly root: HTMLElement;
   private readonly config: WaterConfig;
   private readonly motionPreference: MediaQueryList;
+  private readonly onUnavailable: () => void;
   private reducedMotion: boolean;
   private tier: QualityTier;
   private running = false;
@@ -46,8 +47,9 @@ export class WaterExperience {
   private intersectionObserver?: IntersectionObserver;
   private readonly debugMetrics?: WaterDebugMetrics;
 
-  static mount(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList): WaterExperience {
-    const experience = new WaterExperience(root, config, motionPreference);
+  static mount(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList,
+    onUnavailable: () => void): WaterExperience {
+    const experience = new WaterExperience(root, config, motionPreference, onUnavailable);
     try {
       experience.resize();
       // A synchronous, validated first frame keeps bootstrap errors inside its
@@ -58,6 +60,7 @@ export class WaterExperience {
       }
       experience.renderer.domElement.setAttribute('aria-hidden', 'true');
       root.appendChild(experience.renderer.domElement);
+      experience.renderer.domElement.addEventListener('webglcontextlost', experience.onContextLost);
       window.addEventListener('resize', experience.onResize);
       document.addEventListener('visibilitychange', experience.onVisibilityChange);
       motionPreference.addEventListener('change', experience.onMotionPreferenceChange);
@@ -75,10 +78,12 @@ export class WaterExperience {
     }
   }
 
-  private constructor(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList) {
+  private constructor(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList,
+    onUnavailable: () => void) {
     this.root = root;
     this.config = { ...config };
     this.motionPreference = motionPreference;
+    this.onUnavailable = onUnavailable;
     this.reducedMotion = motionPreference.matches;
     this.tier = config.quality;
     this.adaptiveQuality = new AdaptiveQuality(this.tier,
@@ -119,6 +124,14 @@ export class WaterExperience {
   private readonly onResize = (): void => {
     this.resize();
     this.renderStillFrame();
+  };
+  private readonly onContextLost = (event: Event): void => {
+    // This renderer is terminal after loss. Prevent the browser's default
+    // handling, then dispose; the application keeps its static preview.
+    event.preventDefault();
+    if (this.disposed) return;
+    this.dispose();
+    this.onUnavailable();
   };
   private readonly onVisibilityChange = (): void => { this.syncRendering(); };
   private readonly onMotionPreferenceChange = (): void => {
@@ -375,6 +388,7 @@ export class WaterExperience {
     this.config.interactionEnabled = false;
     this.syncInteractionListeners();
     window.removeEventListener('resize', this.onResize);
+    this.renderer.domElement.removeEventListener('webglcontextlost', this.onContextLost);
     if (this.debugMetrics && window.__waterDebug === this.debugMetrics) delete window.__waterDebug;
     if (window.__waterExperience === this) delete window.__waterExperience;
     this.scene.remove(this.mesh);
