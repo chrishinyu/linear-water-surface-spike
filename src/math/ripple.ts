@@ -69,7 +69,10 @@ export function writeRippleUniforms(
     if (!slot.active) continue;
 
     const age = Math.max(0, now - slot.startedAt);
-    const decay = duration > 0 ? Math.max(0, 1 - age / duration) : 0;
+    // Ease-out (quadratic) decay: most of the energy leaves early and the
+    // last ring settles slowly into the swell, instead of a linear fade.
+    const remaining = duration > 0 ? Math.max(0, 1 - age / duration) : 0;
+    const decay = remaining * remaining;
     const strength = slot.strength * decay;
     if (strength <= 0) {
       slot.active = false;

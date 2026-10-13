@@ -18,10 +18,13 @@ export interface WaterConfig {
 }
 
 export const HERO_CONFIG: Readonly<WaterConfig> = Object.freeze({
-  mode: 'hero', quality: 'high', maxDpr: 1.5,
-  waveAmplitude: 0.17, waveSpeed: 0.14, lineDensity: 228,
+  // Native 2x on desktop: hairline (sub-CSS-pixel) lines need a 1:1 device
+  // pixel grid; at 1.5x they are upscaled and blur wider. Touch devices are
+  // separately capped at MOBILE_MAX_DPR for heat and battery.
+  mode: 'hero', quality: 'high', maxDpr: 2,
+  waveAmplitude: 0.24, waveSpeed: 0.19, lineDensity: 228,
   reflectionIntensity: 1.05, reflectionCenter: 0.54, reflectionWidth: 0.19,
-  pointerStrength: 0.035, rippleStrength: 0.11, rippleDuration: 3,
+  pointerStrength: 0.06, rippleStrength: 0.11, rippleDuration: 3,
   interactionEnabled: true,
 });
 
@@ -32,6 +35,9 @@ export const BACKGROUND_CONFIG: Readonly<WaterConfig> = Object.freeze({
   pointerStrength: 0.018, rippleStrength: 0.06, rippleDuration: 3,
   interactionEnabled: true,
 });
+
+/** Rendering DPR ceiling on coarse-pointer (touch) devices, per the plan. */
+export const MOBILE_MAX_DPR = 1.25;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -44,9 +50,9 @@ export function resolveConfig(
   const merged = { ...base, ...overrides, mode };
   return {
     ...merged,
-    maxDpr: clamp(merged.maxDpr, 0.75, mode === 'hero' ? 1.5 : 1.25),
+    maxDpr: clamp(merged.maxDpr, 0.75, mode === 'hero' ? 2 : 1.25),
     rippleStrength: clamp(merged.rippleStrength, 0, 0.16),
-    pointerStrength: clamp(merged.pointerStrength, 0, 0.05),
+    pointerStrength: clamp(merged.pointerStrength, 0, 0.08),
     rippleDuration: clamp(merged.rippleDuration, 2, 4),
   };
 }

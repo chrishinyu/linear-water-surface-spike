@@ -1,11 +1,14 @@
-import { Mesh, OrthographicCamera, PlaneGeometry, Raycaster, Scene, Vector2, WebGLRenderer } from 'three';
-import { resolveConfig, type QualityTier, type WaterConfig } from '../config';
+import { DataTexture, LinearFilter, Mesh, OrthographicCamera, PlaneGeometry, Raycaster, RedFormat,
+  Scene, UnsignedByteType, Vector2, WebGLRenderer } from 'three';
+import { MOBILE_MAX_DPR, resolveConfig, type QualityTier, type WaterConfig } from '../config';
+import { THEME_MS, THEME_PALETTES, easeOutExpo, type Theme, type ThemePalette } from '../theme';
 import { AdaptiveQuality } from '../performance/AdaptiveQuality';
 import { FrameSampler } from '../performance/FrameSampler';
 import { createRippleSlots, emitRipple, writeRippleUniforms } from '../math/ripple';
 import { createWaterMaterial } from './createWaterMaterial';
 import type { WaterMaterial, WaterUniforms } from './createWaterMaterial';
 import { getQualitySettings } from './quality';
+import { WindField } from './WindField';
 
 export class WaterExperience {
   readonly renderer: WebGLRenderer;
@@ -16,9 +19,21 @@ export class WaterExperience {
   private readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 30);
   private readonly pointerRaycaster = new Raycaster();
   private readonly pointerNdc = new Vector2();
-  private readonly pointerTarget = new Vector2(-10, -10);
-  private readonly pointerSmoothed = new Vector2(-10, -10);
   private readonly tapPosition = new Vector2();
+  // Wind: the pointer deposits energy on the water (screen space, y up); the
+  // field holds, drifts and decays it. See WindField.ts.
+  private readonly windField = new WindField();
+  private readonly windTexture = new DataTexture(this.windField.bytes,
+    this.windField.width, this.windField.height, RedFormat, UnsignedByteType);
+  private readonly windPointer = new Vector2();
+  private readonly windPrevious = new Vector2();
+  private readonly windDir = new Vector2(1, 0);
+  private readonly windScratch = new Vector2();
+  private windUploaded = false;
+  private readonly themeFrom = clonePalette(THEME_PALETTES.dark);
+  private readonly themeTo = clonePalette(THEME_PALETTES.dark);
+  private themeAnimating = false;
+  private themeStart: number | null = null;
   private readonly geometry = new PlaneGeometry(1, 1, 180, 220);
   private readonly mesh: Mesh;
   private readonly root: HTMLElement;
@@ -48,8 +63,8 @@ export class WaterExperience {
   private readonly debugMetrics?: WaterDebugMetrics;
 
   static mount(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList,
-    onUnavailable: () => void): WaterExperience {
-    const experience = new WaterExperience(root, config, motionPreference, onUnavailable);
+    onUnavailable: () => void, theme: Theme = 'dark'): WaterExperience {
+    const experience = new WaterExperience(root, config, motionPreference, onUnavailable, theme);
     try {
       experience.resize();
       // A synchronous, validated first frame keeps bootstrap errors inside its
@@ -79,7 +94,7 @@ export class WaterExperience {
   }
 
   private constructor(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList,
-    onUnavailable: () => void) {
+    onUnavailable: () => void, theme: Theme) {
     this.root = root;
     this.config = { ...config };
     this.motionPreference = motionPreference;
@@ -88,8 +103,12 @@ export class WaterExperience {
     this.tier = config.quality;
     this.adaptiveQuality = new AdaptiveQuality(this.tier,
       window.matchMedia('(pointer: coarse)').matches);
-    this.material = createWaterMaterial(config);
+    this.material = createWaterMaterial(config, THEME_PALETTES[theme]);
+    this.windTexture.minFilter = LinearFilter;
+    this.windTexture.magFilter = LinearFilter;
+    this.windTexture.needsUpdate = true;
     this.uniforms = this.material.uniforms;
+    this.uniforms.uWindMap.value = this.windTexture;
     if (this.reducedMotion) this.uniforms.uWaveSpeed.value = 0;
     this.mesh = new Mesh(this.geometry, this.material);
     try {
@@ -105,7 +124,7 @@ export class WaterExperience {
       // Three must finish its shader cleanup before mount handles failure.
       this.shaderFailed = true;
     };
-    this.renderer.setClearColor('#061015', 1);
+    this.renderer.setClearColor(THEME_PALETTES[theme].clear, 1);
     this.camera.position.set(0, -8, 6.7);
     this.camera.lookAt(0, 0, 0);
     this.scene.add(this.mesh);
@@ -144,10 +163,10 @@ export class WaterExperience {
       this.pointerDownId = null;
       this.mouseHover = false;
       this.pointerEnvelope = 0;
-      this.pointerTarget.set(-10, -10);
-      this.pointerSmoothed.set(-10, -10);
       this.uniforms.uPointerStrength.value = 0;
-      this.uniforms.uPointer.value.copy(this.pointerSmoothed);
+      this.windField.clear();
+      this.windTexture.needsUpdate = true;
+      this.windUploaded = false;
       for (const ripple of this.rippleSlots) ripple.active = false;
       this.uniforms.uRippleStrengths.value.fill(0);
       if (this.debugMetrics) this.debugMetrics.activeRipples = 0;
@@ -169,6 +188,8 @@ export class WaterExperience {
     const shouldRun = this.wantedRunning && !this.reducedMotion
       && !document.hidden && this.intersecting;
     if (shouldRun === this.running) return;
+    // Nobody sees a theme change finish while paused; land it immediately.
+    if (!shouldRun && this.themeAnimating) this.finishTheme();
     this.running = shouldRun;
     if (this.debugMetrics) this.debugMetrics.running = shouldRun;
     this.lastFrameTime = null;
@@ -202,9 +223,15 @@ export class WaterExperience {
         Math.hypot(event.clientX - this.pointerDownX, event.clientY - this.pointerDownY));
     }
     if (event.pointerType !== 'mouse') return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
     const hadHover = this.mouseHover;
-    this.mouseHover = this.pointerUv(event.clientX, event.clientY, this.pointerTarget);
-    if (this.mouseHover && !hadHover) this.pointerSmoothed.copy(this.pointerTarget);
+    this.windPointer.set((event.clientX - rect.left) / rect.width,
+      1 - (event.clientY - rect.top) / rect.height);
+    this.mouseHover = this.windPointer.x >= 0 && this.windPointer.x <= 1
+      && this.windPointer.y >= 0 && this.windPointer.y <= 1;
+    // Entering the water starts a fresh path: no gust across the jump.
+    if (this.mouseHover && !hadHover) this.windPrevious.copy(this.windPointer);
   };
 
   private readonly onPointerLeave = (): void => {
@@ -273,14 +300,16 @@ export class WaterExperience {
       if (this.debugMetrics) this.debugMetrics.averageFps = Math.round(this.frameSampler.averageFps);
       const nextTier = this.adaptiveQuality.sample(1000 / deltaMs, deltaMs);
       if (nextTier) this.setQuality(nextTier);
-      const smoothing = 1 - Math.exp(-Math.min(delta, 0.05) * 8);
-      this.pointerSmoothed.lerp(this.pointerTarget, smoothing);
-      this.pointerEnvelope += ((this.mouseHover ? this.config.pointerStrength : 0)
-        - this.pointerEnvelope) * smoothing;
+      this.stepWind(Math.min(delta, 0.05));
     }
     this.lastFrameTime = timestamp;
+    if (this.themeAnimating) {
+      if (this.themeStart === null) this.themeStart = timestamp;
+      const progress = Math.min(1, (timestamp - this.themeStart) / THEME_MS);
+      this.applyThemeProgress(easeOutExpo(progress));
+      if (progress >= 1) this.themeAnimating = false;
+    }
     this.uniforms.uTime.value = this.elapsed;
-    this.uniforms.uPointer.value.copy(this.pointerSmoothed);
     this.uniforms.uPointerStrength.value = this.pointerEnvelope;
     writeRippleUniforms(this.rippleSlots, this.elapsed, this.config.rippleDuration,
       this.uniforms.uRipplePositions.value, this.uniforms.uRippleStarts.value,
@@ -297,6 +326,90 @@ export class WaterExperience {
     }
     this.renderer.render(this.scene, this.camera);
   };
+
+  /**
+   * Pointer as wind. The cursor never carries an effect with it: each frame it
+   * deposits wind energy along the path it just travelled, scaled by speed
+   * (a parked cursor deposits nothing). The field keeps that energy where it
+   * landed, drifts it slightly downwind and lets it decay (~1.1 s lifetime),
+   * and the shader turns it into rougher water: taller short waves and fresh
+   * capillaries, so lines bend and glints flicker through the wave physics.
+   */
+  private stepWind(dt: number): void {
+    let amount = 0;
+    if (this.mouseHover) {
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      const aspect = rect.width > 0 ? rect.height / rect.width : 1;
+      const dx = this.windPointer.x - this.windPrevious.x;
+      const dy = (this.windPointer.y - this.windPrevious.y) * aspect;
+      const distance = Math.hypot(dx, dy);
+      if (distance > 0.0005) {
+        // Screen widths per second; a brisk sweep (~1.1 widths/s) is a full
+        // gust. Breath, not a blast: deposits are scaled per second of travel.
+        const speed = distance / Math.max(dt, 1 / 240);
+        const gain = this.config.pointerStrength / 0.06;
+        amount = Math.min(1, speed / 1.1) * gain;
+        this.windField.deposit(this.windPrevious.x, this.windPrevious.y,
+          this.windPointer.x, this.windPointer.y, amount * Math.min(1, dt * 10));
+        // Heading follows travel, eased, and is held while the gust fades so
+        // the ripples never flip direction as the pointer slows.
+        this.windScratch.set(dx, dy).multiplyScalar(1 / distance);
+        this.windDir.lerp(this.windScratch, 1 - Math.exp(-dt * 8)).normalize();
+      }
+      this.windPrevious.copy(this.windPointer);
+    }
+    this.windField.step(dt, this.windDir.x, this.windDir.y, 1.1);
+    // Upload while there is energy, plus one final cleared frame.
+    if (this.windField.active || this.windUploaded) {
+      this.windTexture.needsUpdate = true;
+      this.windUploaded = this.windField.active;
+    }
+    // Screen heading to plane space: depth is compressed vertically on screen.
+    this.uniforms.uWindDir.value.set(this.windDir.x, this.windDir.y * 1.6).normalize();
+    // Strength envelope for debugging/tests: rises fast, settles slowly.
+    const rate = amount > this.pointerEnvelope ? 14 : 2.2;
+    this.pointerEnvelope += (amount - this.pointerEnvelope) * (1 - Math.exp(-dt * rate));
+  }
+
+  /** Cross-fades the shader palette; CSS transitions the page in step. */
+  setTheme(theme: Theme, animate = true): void {
+    if (this.disposed) return;
+    const target = THEME_PALETTES[theme];
+    const uniforms = this.uniforms;
+    this.themeFrom.base.copy(uniforms.uBaseColor.value);
+    this.themeFrom.mid.copy(uniforms.uMidColor.value);
+    this.themeFrom.light.copy(uniforms.uLightColor.value);
+    this.themeFrom.line.copy(uniforms.uLineColor.value);
+    this.themeFrom.lineStrength = uniforms.uLineStrength.value;
+    this.themeFrom.glintStrength = uniforms.uGlintStrength.value;
+    this.themeFrom.nearShade = uniforms.uNearShade.value;
+    copyPalette(target, this.themeTo);
+    this.renderer.setClearColor(target.clear, 1);
+    this.themeStart = null;
+    this.themeAnimating = true;
+    if (!animate || this.reducedMotion || !this.running) {
+      this.finishTheme();
+      this.renderStillFrame();
+    }
+  }
+
+  private finishTheme(): void {
+    this.applyThemeProgress(1);
+    this.themeAnimating = false;
+  }
+
+  private applyThemeProgress(t: number): void {
+    const uniforms = this.uniforms;
+    const from = this.themeFrom;
+    const to = this.themeTo;
+    uniforms.uBaseColor.value.copy(from.base).lerp(to.base, t);
+    uniforms.uMidColor.value.copy(from.mid).lerp(to.mid, t);
+    uniforms.uLightColor.value.copy(from.light).lerp(to.light, t);
+    uniforms.uLineColor.value.copy(from.line).lerp(to.line, t);
+    uniforms.uLineStrength.value = from.lineStrength + (to.lineStrength - from.lineStrength) * t;
+    uniforms.uGlintStrength.value = from.glintStrength + (to.glintStrength - from.glintStrength) * t;
+    uniforms.uNearShade.value = from.nearShade + (to.nearShade - from.nearShade) * t;
+  }
 
   private renderStillFrame(): void {
     if (this.disposed || !this.reducedMotion || !this.renderer.domElement.isConnected) return;
@@ -320,10 +433,13 @@ export class WaterExperience {
     const height = Math.max(1, this.root.clientHeight);
     const aspect = width / height;
     const quality = getQualitySettings(this.tier);
-    const dpr = Math.min(window.devicePixelRatio || 1, this.config.maxDpr) * quality.dprScale;
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const maxDpr = coarse ? Math.min(this.config.maxDpr, MOBILE_MAX_DPR) : this.config.maxDpr;
+    const dpr = Math.min(window.devicePixelRatio || 1, maxDpr) * quality.dprScale;
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(width, height, false);
     this.renderer.getDrawingBufferSize(this.uniforms.uResolution.value);
+    this.uniforms.uPixelRatio.value = dpr;
     this.camera.left = -aspect;
     this.camera.right = aspect;
     this.camera.updateProjectionMatrix();
@@ -394,7 +510,32 @@ export class WaterExperience {
     this.scene.remove(this.mesh);
     this.geometry.dispose();
     this.material.dispose();
+    this.windTexture.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
+}
+
+function clonePalette(source: Readonly<ThemePalette>): ThemePalette {
+  return {
+    base: source.base.clone(),
+    mid: source.mid.clone(),
+    light: source.light.clone(),
+    line: source.line.clone(),
+    clear: source.clear.clone(),
+    lineStrength: source.lineStrength,
+    glintStrength: source.glintStrength,
+    nearShade: source.nearShade,
+  };
+}
+
+function copyPalette(source: Readonly<ThemePalette>, target: ThemePalette): void {
+  target.base.copy(source.base);
+  target.mid.copy(source.mid);
+  target.light.copy(source.light);
+  target.line.copy(source.line);
+  target.clear.copy(source.clear);
+  target.lineStrength = source.lineStrength;
+  target.glintStrength = source.glintStrength;
+  target.nearShade = source.nearShade;
 }

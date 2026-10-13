@@ -16,7 +16,9 @@ describe('water configuration', () => {
 
   it('clamps unsafe values', () => {
     const resolved = resolveConfig('hero', { maxDpr: 4, rippleStrength: -1 });
-    expect(resolved.maxDpr).toBe(1.5);
+    // Hero allows native 2x on desktop for hairline lines; touch devices are
+    // capped separately (MOBILE_MAX_DPR) at render time.
+    expect(resolved.maxDpr).toBe(2);
     expect(resolved.rippleStrength).toBe(0);
   });
 });

@@ -2,15 +2,41 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>linear-water-surface-spike</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Linear Water Surface</title>
+    <script>
+      // Stamp the theme before first paint so the page never flashes the
+      // wrong one: a saved choice wins, otherwise follow the system.
+      (function () {
+        var theme = 'dark';
+        try {
+          if (matchMedia('(prefers-color-scheme: light)').matches) theme = 'light';
+        } catch (e) {}
+        try {
+          var stored = localStorage.getItem('water-theme');
+          if (stored === 'light' || stored === 'dark') theme = stored;
+        } catch (e) {}
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
   </head>
   <body>
     <main class="demo-shell">
-      <img class="water-fallback" src="/water-fallback.svg" alt="" aria-hidden="true" />
+      <div class="water-fallback" aria-hidden="true"></div>
       <div id="water-root" class="water-root" aria-hidden="true"></div>
+      <div class="copy-scrim" aria-hidden="true"></div>
+      <button class="theme-toggle" type="button" aria-label="Switch to light theme">
+        <svg class="icon icon-moon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path d="M16.2 12.6A7 7 0 0 1 7.4 3.8a7 7 0 1 0 8.8 8.8Z" />
+        </svg>
+        <svg class="icon icon-sun" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <circle cx="10" cy="10" r="3.4" />
+          <path d="M10 1.8v2.1M10 16.1v2.1M1.8 10h2.1M16.1 10h2.1M4.2 4.2l1.5 1.5M14.3 14.3l1.5 1.5M4.2 15.8l1.5-1.5M14.3 5.7l1.5-1.5" />
+        </svg>
+      </button>
       <section class="demo-copy">
-        <p class="eyebrow">Linear Water Surface</p>
+        <p class="kicker">Linear water surface</p>
         <h1>Water first.<br />Lines on closer view.</h1>
         <p id="status" role="status">Loading static preview…</p>
       </section>

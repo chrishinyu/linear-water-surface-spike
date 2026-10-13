@@ -33,7 +33,7 @@ export function createDebugPanel(
     number('reflectionCenter', 0, 1, 0.005, 'Reflection center');
     number('reflectionWidth', 0.04, 0.4, 0.005, 'Reflection width');
     number('reflectionIntensity', 0, 2, 0.01, 'Reflection intensity');
-    number('pointerStrength', 0, 0.05, 0.001, 'Pointer strength');
+    number('pointerStrength', 0, 0.08, 0.001, 'Pointer strength');
     number('rippleStrength', 0, 0.16, 0.005, 'Ripple strength');
     panel.add(values, 'quality', ['high', 'medium', 'low']).name('Quality')
       .onChange((quality: WaterConfig['quality']) => onChange({ quality }));

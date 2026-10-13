@@ -1,11 +1,40 @@
+/* Colours are primitives from the portfolio design system
+   (website styles/tokens.css): Blue Slate primary ramp, neutrals, Lunetra
+   focus. Dark is the obsidian theme; light is pale blue-grey and white. */
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #f4f5f4;
-  background: #071014;
+  --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Shared with the shader palette tween (THEME_MS in src/theme.ts). */
+  --theme-ms: 600ms;
+  --font-display: Optima, "Optima nova", Candara, "Noto Sans", system-ui, sans-serif;
+  --font-body: Geist, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --page: #151b20; /* matches the dark water troughs */
+  --ink: #f2f2f2; /* neutral-50 */
+  --ink-muted: #bababa; /* neutral-300 */
+  --focus: #88c1ed; /* brand-300, Lunetra glow on dark */
+  --fallback-top: #222b31;
+  --fallback-bottom: #151b20;
+  --fallback-glint: rgb(141 163 176 / 0.1);
+
+  color-scheme: dark;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--page);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme="light"] {
+  --page: #f3f5f6; /* matches the light water */
+  --ink: #172838; /* primary-900 */
+  --ink-muted: #425868; /* primary-600 */
+  --focus: #3a72a0; /* brand-600 */
+  --fallback-top: #ffffff;
+  --fallback-bottom: #d9dfe3;
+  --fallback-glint: rgb(255 255 255 / 0.7);
+  color-scheme: light;
 }
 
 * {
@@ -30,36 +59,82 @@ body {
   width: 100%;
   min-height: 100svh;
   overflow: hidden;
-  background: #071014;
+  background: var(--page);
+  transition: background-color var(--theme-ms) var(--ease-apple);
 }
 
+/* Layers, back to front: fallback, water, scrim, copy, toggle. */
 .water-fallback,
-.water-root {
+.water-root,
+.copy-scrim {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
+/* Pure CSS so the first paint needs no image request. */
 .water-fallback {
   z-index: -2;
-  object-fit: cover;
+  background:
+    radial-gradient(ellipse 16% 62% at 55% 46%, var(--fallback-glint), transparent 72%),
+    linear-gradient(to bottom, var(--fallback-top), var(--fallback-bottom));
 }
 
 .water-root {
   z-index: -1;
   pointer-events: auto;
   visibility: hidden;
+  opacity: 0;
 }
 
+/* The canvas fades in over the static preview instead of popping. The fade
+   lives on the ready state only, so losing WebGL snaps straight back. */
 .is-webgl-ready .water-root {
   visibility: visible;
+  opacity: 1;
+  transition: opacity 400ms var(--ease-apple);
 }
 
 .water-root canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* Protected text region: a soft, fixed field behind the copy so contrast
+   never depends on where the glints happen to be. One layer per theme so
+   the change crossfades (gradients themselves cannot transition). */
+.copy-scrim {
+  z-index: 0;
+  pointer-events: none;
+}
+
+.copy-scrim::before,
+.copy-scrim::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  transition: opacity var(--theme-ms) var(--ease-apple);
+}
+
+.copy-scrim::before {
+  background: radial-gradient(ellipse 72% 64% at 16% 52%,
+    rgb(21 27 32 / 0.6), rgb(21 27 32 / 0.26) 55%, transparent 82%);
+}
+
+.copy-scrim::after {
+  background: radial-gradient(ellipse 72% 64% at 16% 52%,
+    rgb(243 245 246 / 0.74), rgb(243 245 246 / 0.32) 55%, transparent 82%);
+  opacity: 0;
+}
+
+[data-theme="light"] .copy-scrim::before {
+  opacity: 0;
+}
+
+[data-theme="light"] .copy-scrim::after {
+  opacity: 1;
 }
 
 .demo-copy {
@@ -78,31 +153,131 @@ body {
   pointer-events: auto;
 }
 
-.eyebrow {
-  margin: 0 0 1.5rem;
-  color: #aab9bb;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.16em;
+.kicker {
+  margin: 0 0 1.25rem;
+  color: var(--ink-muted);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   line-height: 1.4;
-  text-transform: uppercase;
+  transition: color var(--theme-ms) var(--ease-apple);
 }
 
 h1 {
-  max-width: 12ch;
+  max-width: 16ch;
   margin: 0;
-  color: #f5f3eb;
-  font-size: clamp(3.25rem, 8vw, 7.5rem);
-  font-weight: 450;
-  letter-spacing: -0.065em;
-  line-height: 0.96;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 7vw, 6rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+  text-wrap: balance;
+  transition: color var(--theme-ms) var(--ease-apple);
 }
 
+/* Renderer state is for assistive tech and tests only; it must never appear
+   on screen as a loading message. */
 #status {
-  margin: 1.75rem 0 0;
-  color: #c1ccca;
-  font-size: 0.95rem;
-  line-height: 1.5;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.theme-toggle {
+  position: absolute;
+  z-index: 2;
+  top: max(1rem, env(safe-area-inset-top));
+  right: max(clamp(1rem, 4vw, 2.5rem), env(safe-area-inset-right));
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 999px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 160ms var(--ease-apple),
+    background-color 200ms ease,
+    border-color var(--theme-ms) var(--ease-apple),
+    color var(--theme-ms) var(--ease-apple);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .theme-toggle:hover {
+    background-color: color-mix(in srgb, var(--ink) 8%, transparent);
+  }
+}
+
+.theme-toggle:active {
+  transform: scale(0.96);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* The icon shows the current theme; the outgoing glyph turns away and blurs
+   so the swap reads as one object changing, not two overlapping. */
+.icon {
+  grid-area: 1 / 1;
+  width: 1.125rem;
+  height: 1.125rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+  transition:
+    opacity 280ms var(--ease-apple),
+    transform 480ms var(--ease-apple),
+    filter 280ms var(--ease-apple);
+}
+
+.icon-sun {
+  opacity: 0;
+  transform: rotate(-70deg) scale(0.6);
+  filter: blur(2px);
+}
+
+[data-theme="light"] .icon-sun {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+[data-theme="light"] .icon-moon {
+  opacity: 0;
+  transform: rotate(70deg) scale(0.6);
+  filter: blur(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --theme-ms: 0ms;
+  }
+
+  .is-webgl-ready .water-root {
+    transition: none;
+  }
+
+  .icon,
+  [data-theme="light"] .icon-moon,
+  .icon-sun {
+    transform: none;
+    filter: none;
+    transition: opacity 120ms linear;
+  }
 }
 
 @media (max-width: 600px) {
@@ -111,6 +286,6 @@ h1 {
   }
 
   h1 {
-    font-size: clamp(3rem, 15vw, 5rem);
+    font-size: clamp(2.75rem, 13vw, 4.5rem);
   }
 }

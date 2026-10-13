@@ -340,6 +340,10 @@ test('simulated frame timestamps require five uninterrupted slow seconds before 
 
 test('highlight-detail readback changes pixels with a stable luminance centroid', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
+  // This checks the highlight sampler, not the palette: run on the dark theme
+  // and pin glint colour and intensity below, so day/night tuning (dim night
+  // glints, saturating day glints) cannot move the threshold.
+  await page.emulateMedia({ colorScheme: 'dark' });
   await page.setViewportSize({ width: 800, height: 450 });
   await page.addInitScript(() => {
     window.requestAnimationFrame = () => 1;
@@ -351,6 +355,8 @@ test('highlight-detail readback changes pixels with a stable luminance centroid'
   // or that a viewer perceives the intended fragmented light path.
   const signal = await page.evaluate(() => {
     const water = window.__waterExperience!;
+    water.uniforms.uGlintStrength.value = 1;
+    water.uniforms.uLightColor.value.setRGB(1, 1, 1);
     const renderer = water.renderer;
     const gl = renderer.getContext();
     const scene = (water as unknown as { scene: import('three').Scene }).scene;
