@@ -194,12 +194,13 @@ void main() {
   // tilting facets through the light, so every glint moves with the water.
   // Crest lines shape the stronger glints, with a softer reflection fill below;
   // there is no screen-space bloom or broad white reflection wash.
-  // The bright reflection lines are cut to 40% strength in both themes.
-  // Note: mix(color, color + X, 0.4) is algebraically color + 0.4 * X, a
+  // The bright reflection lines are cut to 20% strength in both themes
+  // (40%, then halved again).
+  // Note: mix(color, color + X, 0.2) is algebraically color + 0.2 * X, a
   // brightness scale before tonemapping, not a true layer opacity. That is
-  // what still lets strong daytime glints reach pure white; a true 40% layer
-  // would cap them below white.
-  const float GLINT_OPACITY = 0.4;
+  // what still lets the strongest daytime glints reach white; a true 20% layer
+  // would cap them well below it.
+  const float GLINT_OPACITY = 0.2;
   vec3 lit = color + uLightColor * glint * 1.9 * uReflectionIntensity * uGlintStrength;
   color = mix(color, lit, GLINT_OPACITY);
   // The soft sunlit band under the glitter scales with day/night intensity:
