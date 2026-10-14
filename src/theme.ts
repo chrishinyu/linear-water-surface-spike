@@ -22,11 +22,13 @@ export interface ThemePalette {
   glintStrength: number;
   /** Foreground darkening that implies the downward viewing angle. */
   nearShade: number;
+  /** Depth of the surface texture's darkening (0..1). */
+  grain: number;
 }
 
 const palette = (values: {
   base: string; mid: string; light: string; line: string; clear: string;
-  lineStrength: number; glintStrength: number; nearShade: number;
+  lineStrength: number; glintStrength: number; nearShade: number; grain: number;
 }): Readonly<ThemePalette> => Object.freeze({
   base: new Color(values.base),
   mid: new Color(values.mid),
@@ -36,6 +38,7 @@ const palette = (values: {
   lineStrength: values.lineStrength,
   glintStrength: values.glintStrength,
   nearShade: values.nearShade,
+  grain: values.grain,
 });
 
 export const THEME_PALETTES: Readonly<Record<Theme, Readonly<ThemePalette>>> = {
@@ -53,12 +56,13 @@ export const THEME_PALETTES: Readonly<Record<Theme, Readonly<ThemePalette>>> = {
     // Night: the same shimmer motion, but moonlit: dim, soft highlights.
     glintStrength: 0.36,
     nearShade: 0.1,
+    grain: 0.14,
   }),
   // Daytime: a bright field with real shade in the troughs, so pure-white
   // sun glitter has something to stand against. A near-white field cannot
   // show white highlights; the contrast lives between trough and glint.
   light: palette({
-    base: '#d6dce0', // primary-100, greyed
+    base: '#edf0f2', // neutral-50 with a trace of primary-100: near white
     mid: '#ffffff', // neutral-0
     light: '#ffffff',
     line: '#425868', // primary-600
@@ -67,6 +71,8 @@ export const THEME_PALETTES: Readonly<Record<Theme, Readonly<ThemePalette>>> = {
     // Day: intense, saturating glints that bloom to pure white.
     glintStrength: 1.5,
     nearShade: 0.03,
+    // Shallow texture so the field stays near white (median ~237/255).
+    grain: 0.07,
   }),
 };
 

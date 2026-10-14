@@ -10,6 +10,22 @@ import type { WaterMaterial, WaterUniforms } from './createWaterMaterial';
 import { getQualitySettings } from './quality';
 import { WindField } from './WindField';
 
+/** Ellipse in CSS px relative to the canvas's top-left corner. */
+export interface CalmZone { x: number; y: number; radiusX: number; radiusY: number }
+
+export interface WaterMountOptions {
+  /**
+   * Where pointer wind is read. 'canvas' (default) only sees the pointer while
+   * it is directly over the canvas; 'window' keeps the wind working when page
+   * content sits on top of the water. Clicks on content never ripple.
+   */
+  pointerTarget?: 'canvas' | 'window';
+}
+
+// Presses that start on content (text, links, controls) are not taps on water.
+const CONTENT_SELECTOR = 'a, button, input, textarea, select, label, p, h1, h2, h3, h4, li, '
+  + 'figure, nav, [data-no-ripple]';
+
 export class WaterExperience {
   readonly renderer: WebGLRenderer;
   readonly material: WaterMaterial;
@@ -62,9 +78,14 @@ export class WaterExperience {
   private intersectionObserver?: IntersectionObserver;
   private readonly debugMetrics?: WaterDebugMetrics;
 
+  private readonly windowPointer: boolean;
+  private calmZone: CalmZone | null = null;
+
   static mount(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList,
-    onUnavailable: () => void, theme: Theme = 'dark'): WaterExperience {
-    const experience = new WaterExperience(root, config, motionPreference, onUnavailable, theme);
+    onUnavailable: () => void, theme: Theme = 'dark',
+    options: WaterMountOptions = {}): WaterExperience {
+    const experience = new WaterExperience(root, config, motionPreference, onUnavailable, theme,
+      options);
     try {
       experience.resize();
       // A synchronous, validated first frame keeps bootstrap errors inside its
@@ -94,8 +115,9 @@ export class WaterExperience {
   }
 
   private constructor(root: HTMLElement, config: WaterConfig, motionPreference: MediaQueryList,
-    onUnavailable: () => void, theme: Theme) {
+    onUnavailable: () => void, theme: Theme, options: WaterMountOptions) {
     this.root = root;
+    this.windowPointer = options.pointerTarget === 'window';
     this.config = { ...config };
     this.motionPreference = motionPreference;
     this.onUnavailable = onUnavailable;
@@ -242,6 +264,8 @@ export class WaterExperience {
 
   private readonly onPointerDown = (event: PointerEvent): void => {
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if (this.windowPointer && event.target instanceof Element
+      && event.target.closest(CONTENT_SELECTOR)) return;
     this.pointerDownId = event.pointerId;
     this.pointerDownX = event.clientX;
     this.pointerDownY = event.clientY;
@@ -266,11 +290,14 @@ export class WaterExperience {
   };
 
   private syncInteractionListeners(): void {
-    const canvas = this.renderer.domElement;
+    // Window and elements share the pointer event map; one type keeps the
+    // listener signatures checked.
+    const canvas = (this.windowPointer ? window : this.renderer.domElement) as HTMLElement;
+    const leave = this.windowPointer ? document.documentElement : this.renderer.domElement;
     if (this.config.interactionEnabled && !this.reducedMotion && !this.disposed
       && !this.listenersAttached) {
       canvas.addEventListener('pointermove', this.onPointerMove, { passive: true });
-      canvas.addEventListener('pointerleave', this.onPointerLeave, { passive: true });
+      leave.addEventListener('pointerleave', this.onPointerLeave, { passive: true });
       canvas.addEventListener('pointerdown', this.onPointerDown, { passive: true });
       canvas.addEventListener('pointerup', this.onPointerUp, { passive: true });
       canvas.addEventListener('pointercancel', this.onPointerCancel, { passive: true });
@@ -278,7 +305,7 @@ export class WaterExperience {
     } else if ((!this.config.interactionEnabled || this.reducedMotion || this.disposed)
       && this.listenersAttached) {
       canvas.removeEventListener('pointermove', this.onPointerMove);
-      canvas.removeEventListener('pointerleave', this.onPointerLeave);
+      leave.removeEventListener('pointerleave', this.onPointerLeave);
       canvas.removeEventListener('pointerdown', this.onPointerDown);
       canvas.removeEventListener('pointerup', this.onPointerUp);
       canvas.removeEventListener('pointercancel', this.onPointerCancel);
@@ -371,6 +398,36 @@ export class WaterExperience {
     this.pointerEnvelope += (amount - this.pointerEnvelope) * (1 - Math.exp(-dt * rate));
   }
 
+  /**
+   * Still water behind content: inside the ellipse the short waves, wind,
+   * lines and glints die down toward a smooth swell, feathered over
+   * `softness` (fraction of the radius) at the edge. null removes it.
+   */
+  setCalmZone(zone: CalmZone | null, strength = 0.85, softness = 0.5): void {
+    if (this.disposed) return;
+    this.calmZone = zone;
+    this.uniforms.uCalmStrength.value = zone ? strength : 0;
+    this.uniforms.uCalmSoftness.value = softness;
+    this.writeCalmZone();
+    this.renderStillFrame();
+  }
+
+  /** Whole-surface calm, 0 (as designed) to 1 (wind dropped). */
+  setSettle(amount: number): void {
+    if (this.disposed) return;
+    this.uniforms.uSettle.value = Math.min(1, Math.max(0, amount));
+    this.renderStillFrame();
+  }
+
+  private writeCalmZone(): void {
+    const zone = this.calmZone;
+    if (!zone) return;
+    const ratio = this.uniforms.uPixelRatio.value;
+    const height = Math.max(1, this.root.clientHeight);
+    this.uniforms.uCalmZone.value.set(zone.x * ratio, (height - zone.y) * ratio,
+      zone.radiusX * ratio, zone.radiusY * ratio);
+  }
+
   /** Cross-fades the shader palette; CSS transitions the page in step. */
   setTheme(theme: Theme, animate = true): void {
     if (this.disposed) return;
@@ -383,6 +440,7 @@ export class WaterExperience {
     this.themeFrom.lineStrength = uniforms.uLineStrength.value;
     this.themeFrom.glintStrength = uniforms.uGlintStrength.value;
     this.themeFrom.nearShade = uniforms.uNearShade.value;
+    this.themeFrom.grain = uniforms.uGrain.value;
     copyPalette(target, this.themeTo);
     this.renderer.setClearColor(target.clear, 1);
     this.themeStart = null;
@@ -409,6 +467,7 @@ export class WaterExperience {
     uniforms.uLineStrength.value = from.lineStrength + (to.lineStrength - from.lineStrength) * t;
     uniforms.uGlintStrength.value = from.glintStrength + (to.glintStrength - from.glintStrength) * t;
     uniforms.uNearShade.value = from.nearShade + (to.nearShade - from.nearShade) * t;
+    uniforms.uGrain.value = from.grain + (to.grain - from.grain) * t;
   }
 
   private renderStillFrame(): void {
@@ -440,6 +499,7 @@ export class WaterExperience {
     this.renderer.setSize(width, height, false);
     this.renderer.getDrawingBufferSize(this.uniforms.uResolution.value);
     this.uniforms.uPixelRatio.value = dpr;
+    this.writeCalmZone();
     this.camera.left = -aspect;
     this.camera.right = aspect;
     this.camera.updateProjectionMatrix();
@@ -526,6 +586,7 @@ function clonePalette(source: Readonly<ThemePalette>): ThemePalette {
     lineStrength: source.lineStrength,
     glintStrength: source.glintStrength,
     nearShade: source.nearShade,
+    grain: source.grain,
   };
 }
 
@@ -538,4 +599,5 @@ function copyPalette(source: Readonly<ThemePalette>, target: ThemePalette): void
   target.lineStrength = source.lineStrength;
   target.glintStrength = source.glintStrength;
   target.nearShade = source.nearShade;
+  target.grain = source.grain;
 }

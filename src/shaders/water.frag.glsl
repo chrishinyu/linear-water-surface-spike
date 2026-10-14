@@ -18,6 +18,17 @@ uniform vec3 uLineColor;
 uniform float uLineStrength;
 uniform float uGlintStrength;
 uniform float uNearShade;
+// Depth of the noise texture's darkening (dark 0.14; light shallower so
+// the daytime field can stay near white).
+uniform float uGrain;
+// Calm zone: an ellipse (center.xy, radius.zw, drawing-buffer px, y up) where
+// the water lies still behind page content, like the wind shadow behind a
+// pier. Strength 0 (the default) leaves the water untouched.
+uniform vec4 uCalmZone;
+uniform float uCalmSoftness;
+uniform float uCalmStrength;
+// Whole-surface calm (0..1), e.g. driven by scroll: the wind drops.
+uniform float uSettle;
 
 varying vec2 vUv;
 varying vec3 vWorldPosition;
@@ -92,10 +103,15 @@ void main() {
   // it landed and decays there (see WindField.ts); here it simply roughens the
   // surface: the existing short waves grow and wind capillaries appear, so the
   // lines bend and the glints flicker more through ordinary wave physics.
+  float zoneDistance = length((gl_FragCoord.xy - uCalmZone.xy) / max(uCalmZone.zw, vec2(1.0)));
+  float calm = max(uSettle,
+    uCalmStrength * (1.0 - smoothstep(1.0 - uCalmSoftness, 1.0, zoneDistance)));
   float roughness = texture2D(uWindMap, screen).r;
   roughness = roughness * roughness * (3.0 - 2.0 * roughness);
+  // Sheltered water does not take the wind.
+  roughness *= 1.0 - calm;
   vec3 detail = detailWaves(p, t * 4.0)
-    * (mix(0.55, 1.0, uFineWaveWeight) + roughness * 1.6);
+    * (mix(0.55, 1.0, uFineWaveWeight) + roughness * 1.6) * mix(1.0, 0.3, calm);
   vec3 gust = vec3(0.0);
   if (roughness > 0.004) gust = gustWaves(p, t * 4.0, uWindDir) * roughness;
   detail += gust;
@@ -149,7 +165,7 @@ void main() {
     + broadNoise * 0.14 + screen.y * 0.12, 0.0, 1.0);
   vec3 color = mix(uBaseColor, uMidColor, tone * tone);
   float crestCoverage = smoothstep(0.24, 0.76, crestBreakup);
-  color *= 0.86 + breakupA * 0.14;
+  color *= 1.0 - uGrain + breakupA * uGrain;
   // Lines pull toward the theme's line ink instead of brightening, so the same
   // field reads as light strokes on obsidian and as fine engraving on pale
   // water. A faint base term outside the crests keeps construction legible in
@@ -162,6 +178,7 @@ void main() {
     * mix(1.0, 0.8, portrait));
   // Unresolved lines (sub-pixel spacing) fade rather than shimmer.
   lineCoverage *= mix(1.0, 0.3, smoothstep(0.45, 1.3, aa));
+  lineCoverage *= mix(1.0, 0.3, calm);
   color = mix(color, uLineColor, clamp(lineCoverage * uLineStrength * 3.0, 0.0, 1.0));
 
   // Screen-anchored illumination: pointer and wave motion cannot move its center.
@@ -201,11 +218,17 @@ void main() {
   // what still lets the strongest daytime glints reach white; a true 20% layer
   // would cap them well below it.
   const float GLINT_OPACITY = 0.2;
+  // Still water barely glitters: glints fade first, then the tone evens out
+  // toward a smooth swell so text above it never sits on moving contrast.
+  glint *= 1.0 - calm * 0.92;
   vec3 lit = color + uLightColor * glint * 1.9 * uReflectionIntensity * uGlintStrength;
   color = mix(color, lit, GLINT_OPACITY);
   // The soft sunlit band under the glitter scales with day/night intensity:
   // a luminous path by day, a faint moonlit one by night.
-  color += uLightColor * reflection * face * 0.05 * uReflectionIntensity * uGlintStrength;
+  color += uLightColor * reflection * face * 0.05 * uReflectionIntensity * uGlintStrength
+    * (1.0 - calm * 0.6);
+  float stillTone = clamp(0.26 + vHeight * 0.35 + screen.y * 0.12, 0.0, 1.0);
+  color = mix(color, mix(uBaseColor, uMidColor, stillTone * stillTone), calm * 0.55);
   // The pointer adds no light of its own: it only roughens the water (the wind
   // map above), and the lines and glints respond through the waves.
   // A slight near-field darkening reinforces the angle without a horizon.

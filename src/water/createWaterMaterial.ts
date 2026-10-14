@@ -1,4 +1,4 @@
-import { Color, ShaderMaterial, Vector2, type Texture } from 'three';
+import { Color, ShaderMaterial, Vector2, Vector4, type Texture } from 'three';
 import type { WaterConfig } from '../config';
 import { MAX_RIPPLE_UNIFORMS } from '../math/ripple';
 import type { ThemePalette } from '../theme';
@@ -37,6 +37,14 @@ export interface WaterUniforms {
   uLineStrength: Uniform<number>;
   uGlintStrength: Uniform<number>;
   uNearShade: Uniform<number>;
+  uGrain: Uniform<number>;
+  // Calm zone (center x, y, radius x, y in drawing-buffer px, y up), its
+  // feathered fraction and strength. Strength 0 = no zone.
+  uCalmZone: Uniform<Vector4>;
+  uCalmSoftness: Uniform<number>;
+  uCalmStrength: Uniform<number>;
+  // Whole-surface calm, 0..1.
+  uSettle: Uniform<number>;
   uRipplePositions: Uniform<Float32Array>;
   uRippleStarts: Uniform<Float32Array>;
   uRippleStrengths: Uniform<Float32Array>;
@@ -71,6 +79,11 @@ export function createWaterMaterial(config: WaterConfig,
     uLineStrength: { value: palette.lineStrength },
     uGlintStrength: { value: palette.glintStrength },
     uNearShade: { value: palette.nearShade },
+    uGrain: { value: palette.grain },
+    uCalmZone: { value: new Vector4(0, 0, 1, 1) },
+    uCalmSoftness: { value: 0.5 },
+    uCalmStrength: { value: 0 },
+    uSettle: { value: 0 },
     uRipplePositions: { value: new Float32Array(MAX_RIPPLE_UNIFORMS * 2) },
     uRippleStarts: { value: new Float32Array(MAX_RIPPLE_UNIFORMS) },
     uRippleStrengths: { value: new Float32Array(MAX_RIPPLE_UNIFORMS) },

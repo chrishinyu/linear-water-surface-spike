@@ -22,6 +22,26 @@ The default page uses the hero preset. Hover creates a subtle local response. A 
 
 Quality starts at high for the hero. After five continuous seconds below 45 FPS on desktop or 30 FPS on a coarse pointer, it drops high → medium → low and never upgrades automatically. Tiers lower DPR, fine-wave weight, highlight samples, line density, and the active ripple cap. Rendering pauses when the page is hidden or the water root leaves the viewport. `prefers-reduced-motion: reduce` draws one still frame, disables pointer responses, and resumes the latest settings when the preference returns to normal. WebGL or shader initialization failure leaves the static SVG fallback visible. Runtime WebGL context loss stops and disposes the renderer and returns to that fallback; this spike does not recreate the WebGL instance automatically.
 
+## Using the water as a page background
+
+The water can sit behind page content. Three controls make that possible; all default to off, so the hero page renders exactly as before:
+
+- `WaterExperience.mount(root, config, motion, onUnavailable, theme, { pointerTarget: 'window' })` reads pointer wind from the whole window, so content layered over the canvas does not block it. Presses that start on text, links or controls never ripple.
+- `experience.setCalmZone({ x, y, radiusX, radiusY }, strength, softness)` (CSS px relative to the canvas) makes the water lie still inside an ellipse behind content, like the wind shadow behind a pier: short waves, wind, lines and glints die down toward a smooth swell, feathered at the edge. `null` removes it. A very tall `radiusY` turns it into a vertical band.
+- `experience.setSettle(0..1)` calms the whole surface, for example as the page scrolls.
+
+The light theme leans near white (troughs `#edf0f2`, a shallower surface texture via the per-theme `grain` value); the dark theme is unchanged.
+
+### Layout modes (still open)
+
+Three ways to place the water behind a centred content column were prototyped. None is chosen yet:
+
+1. **Hero band.** Water only behind the intro, fading into a solid page through a static mask. Rendering stops once the band scrolls away. The clearest separation between atmosphere and reading.
+2. **Calm zone.** Water behind the whole page, still inside the content column; only the margins move. On a 1440px screen with a narrow column the moving margins are wide; on a phone the whole screen is calm, so the effect mostly disappears. Renders the whole time.
+3. **Settle.** Full-screen water behind the intro, calm right behind the text. Scrolling drops the wind, then fades the water into the page before the content arrives, and rendering stops once it has faded.
+
+Questions to settle: whether the water should ever sit behind long-form reading (calm zone) or stay an opening moment (hero band, settle); how the settle fade should feel live; and whether the edge of a calm zone reads as natural or as a visible boundary. The review page used to compare them carries personal portfolio copy and is kept out of this repository.
+
 ## Reproduce measurements
 
 The automated 10-second headless regression check runs in `npm run test:e2e`. It measures the debug frame sampler, one canvas/context, ripple cap, navigation, and browser errors. Headless FPS is a regression signal; it does not prove device performance. The 150 KiB application budget is separate from the measured Three.js dependency, which remains part of total transfer.

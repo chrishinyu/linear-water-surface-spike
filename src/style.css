@@ -32,7 +32,7 @@
   --ink-muted: #425868; /* primary-600 */
   --focus: #3a72a0; /* brand-600 */
   --fallback-top: #ffffff;
-  --fallback-bottom: #d9dfe3;
+  --fallback-bottom: #ebeef0;
   --fallback-glint: rgb(255 255 255 / 0.7);
   color-scheme: light;
 }
